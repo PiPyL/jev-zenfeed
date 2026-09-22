@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Jev content-script harness</title>
+  <!--
+    Browser test for the content scripts (real files, manifest order) against a
+    fake Facebook DOM and a fake chrome.* API.
+    Run: npm run harness  → open http://localhost:8765/test/content-harness.html
+    Result: the page lists PASS/FAIL; window.__harnessResult = { passed, failed, done }.
+  -->
+  <link rel="stylesheet" href="../src/content/content.css">
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 16px; }
+    #results { position: fixed; right: 8px; top: 8px; width: 420px; max-height: 95vh; overflow: auto;
+      background: #fff; border: 1px solid #ccc; padding: 8px; font-size: 12px; z-index: 1000; }
+    .pass { color: #0a7a2f; } .fail { color: #c00; font-weight: bold; }
+    [role="feed"] > div { border: 1px solid #ddd; margin: 4px 0; padding: 6px; width: 420px; min-height: 40px; }
+  </style>
+</head>
+<body>
+  <div id="results"><b>Jev content harness</b><div id="log"></div></div>
+  <div role="main" id="main"></div>
+
+  <script>
+    // ==================== Fake chrome.* ====================
+    const store = {
+      extensionEnabled: true, filterCriteria: 'cá độ', confidenceThreshold: 70,
+      hideMode: 'banner', antiFoucBlur: true, apiKey: 'secret-key', apiUrl: 'http://localhost:3000'
+    };
+    const changeListeners = [];
+    const requestedKeys = new Set();
+    const calls = [];                 // every EVALUATE_BATCH payload
+    let backendMode = 'ok';           // 'ok' | 'error'
+
+    function backend(items) {
+      calls.push(items);
+      const crit = String(store.filterCriteria || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+      return new Promise(resolve => setTimeout(() => resolve(items.map(i => {
+        if (backendMode === 'error') return { id: i.id, shouldHide: false, confidence: 0, error: true };
+        const hit = crit.some(c => i.text.toLowerCase().includes(c));
+        return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3 };
+      })), 60));
+    }
+
+    window.chrome = {
+      runtime: {
+        id: 'harness',
+        sendMessage(msg) {
+          if (msg.action === 'EVALUATE_BATCH') return backend(msg.items);
+          return Promise.resolve();
+        },
+        onMessage: { addListener() {} }
+      },
+      storage: {
+        local: {
+          get(keys, cb) {
+            const out = {};
+            Object.entries(keys).forEach(([k, d]) => { requestedKeys.add(k); out[k] = k in store ? store[k] : d; });
+            setTimeout(() => cb(out), 0);
+          },
+          set(obj) {
+            const changes = {};
+            Object.entries(obj).forEach(([k, v]) => { changes[k] = { oldValue: store[k], newValue: v }; store[k] = v; });
+            setTimeout(() => changeListeners.forEach(l => l(changes, 'local')), 0);
+            return Promise.resolve();
+          }
+        },
+        onChanged: { addListener(l) { changeListeners.push(l); } }
+      }
+    };
+
+    // ==================== Fake Facebook DOM ====================
+    function postHTML({ author, body, comments = [], useMarker = true }) {
+      const bodyHtml = useMarker
+        ? `<div data-ad-preview="message"><div dir="auto">${body}</div></div>`
+        : `<div dir="auto"><div dir="auto">${body.split('|')[0]}</div><div dir="auto">${body.split('|')[1] || ''}</div></div>`;
+      const commentsHtml = comments.length
+        ? `<ul>${comments.map(c => `<li><div role="article" aria-label="Bình luận của X"><span dir="auto">${c}</span></div></li>`).join('')}</ul>`
+        : '';
+      return `<div><h3><a role="link"><strong>${author}</strong></a></h3>${bodyHtml}
+        <div role="toolbar"><span dir="auto">Thích</span></div>${commentsHtml}</div>`;
+    }
+    function makeFeed(posts) {
+      const feed = document.createElement('div');
+      feed.setAttribute('role', 'feed');
+      posts.forEach(p => {
+        const unit = document.createElement('div');
+        unit.id = p.id;
+        unit.innerHTML = postHTML(p);
+        feed.appendChild(unit);
+      });
+      return feed;
+    }
+    document.getElementById('main').appendChild(makeFeed([
+      { id: 'A', author: 'Nhà cái X', body: 'Kèo cá độ bóng đá đêm nay, vào ngay!' },
+      { id: 'B', author: 'Bạn Lan', body: 'Hôm nay mình đi dạo công viên rất vui' },
+      { id: 'C', author: 'Bạn Minh', body: 'Ảnh con mèo nhà mình dễ thương quá', comments: ['Ai muốn cá độ không, ib'] },
+      { id: 'D1', author: 'Quảng cáo Y', body: 'Nhận cá độ tỉ số, hoàn tiền 100%' },
+      { id: 'D2', author: 'Quảng cáo Y', body: 'Nhận cá độ tỉ số, hoàn tiền 100%' },
+      { id: 'E', author: 'Bạn Hoa', body: 'Đoạn một của bài viết dài|Đoạn hai của bài viết dài', useMarker: false }
+    ]));
+  </script>
+
+  <!-- Real content scripts, manifest order -->
+  <script src="../src/utils/settings-defaults.js"></script>
+  <script src="../src/utils/fast-hash.js"></script>
+  <script src="../src/content/fb-selectors.js"></script>
+  <script src="../src/content/text-extractor.js"></script>
+  <script src="../src/content/ui-overlay.js"></script>
+  <script src="../src/content/content.js"></script>
+
+  <script>
+    const results = { passed: 0, failed: 0, done: false, failures: [] };
+    window.__harnessResult = results;
+    const $ = (id) => document.getElementById(id);
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const status = (id) => $(id).dataset.jevStatus;
+    const isCollapsed = (id) => $(id).classList.contains('jev-post-collapsed');
+    const bannerOf = (id) => $(id).querySelector(':scope > .jev-banner');
+    const allItems = () => calls.flat();
+
+    function check(name, cond, detail = '') {
+      const line = document.createElement('div');
+      if (cond) { results.passed++; line.className = 'pass'; line.textContent = `PASS ${name}`; }
+      else { results.failed++; results.failures.push(name); line.className = 'fail'; line.textContent = `FAIL ${name} ${detail}`; }
+      $('log').appendChild(line);
+    }
+
+    async function run() {
+      await sleep(700);
+
+      // --- Initial evaluation ---
+      check('Không đọc apiKey/apiUrl từ storage', !requestedKeys.has('apiKey') && !requestedKeys.has('apiUrl'), [...requestedKeys].join(','));
+      check('Bài vi phạm A bị thu gọn bằng banner', status('A') === 'hidden' && isCollapsed('A') && !!bannerOf('A'));
+      check('Bài an toàn B hiển thị bình thường', status('B') === 'safe' && !$('B').classList.contains('jev-analyzing'));
+      check('Bình luận KHÔNG ảnh hưởng quyết định (C an toàn)', status('C') === 'safe');
+      const cItem = allItems().find(i => i.text.includes('con mèo'));
+      check('Nội dung bình luận không bị gửi đi', cItem && !cItem.text.includes('ib'), cItem && cItem.text);
+      check('Hai bài trùng nội dung đều bị ẩn, không kẹt blur',
+        status('D1') === 'hidden' && status('D2') === 'hidden' &&
+        !$('D1').classList.contains('jev-analyzing') && !$('D2').classList.contains('jev-analyzing'));
+      const dIds = allItems().filter(i => i.text.includes('tỉ số')).map(i => i.id);
+      check('Mỗi phần tử có id riêng', new Set(dIds).size === dIds.length && dIds.length === 2, dIds.join(','));
+      const eItem = allItems().find(i => i.text.includes('Đoạn một'));
+      check('Đoạn văn lồng nhau không bị gửi lặp',
+        eItem && eItem.text.split('Đoạn một').length === 2 && eItem.text.split('Đoạn hai').length === 2, eItem && JSON.stringify(eItem.text));
+      const aItem = allItems().find(i => i.text.includes('Kèo'));
+      check('Tác giả được trích đúng', aItem && aItem.author === 'Nhà cái X', aItem && aItem.author);
+
+      // --- Re-check of hidden post: no re-evaluation, no flicker, reveal preserved ---
+      bannerOf('A').querySelector('.jev-btn-reveal').click();
+      check('Bấm "Xem nội dung" mở bài', $('A').classList.contains('jev-revealed') && !isCollapsed('A'));
+      const callsBefore = calls.length;
+      const bannerNode = bannerOf('A');
+      document.body.appendChild(document.createElement('div')); // mutation → scan + visible re-check
+      await sleep(1600);
+      document.body.appendChild(document.createElement('div'));
+      await sleep(600);
+      check('Bài đã ẩn KHÔNG bị gửi lại API khi kiểm tra lại', calls.length === callsBefore, `${calls.length - callsBefore} lần gọi thêm`);
+      check('Banner giữ nguyên & trạng thái "đã mở" được giữ', bannerOf('A') === bannerNode && $('A').classList.contains('jev-revealed'));
+
+      // --- hideMode change → blur, control tag not blurred ---
+      chrome.storage.local.set({ hideMode: 'blur' });
+      await sleep(200);
+      const tag = $('A').querySelector(':scope > .jev-blur-tag');
+      const firstChild = [...$('A').children].find(c => !c.classList.contains('jev-ui'));
+      check('Đổi chế độ hiển thị áp dụng ngay cho bài đã ẩn', $('A').classList.contains('jev-blurred-post') && !!tag && !bannerOf('A'));
+      check('Nút mở trong chế độ Blur không bị làm mờ',
+        tag && getComputedStyle(tag).filter === 'none' && getComputedStyle(firstChild).filter.includes('blur'),
+        tag && getComputedStyle(tag).filter);
+      chrome.storage.local.set({ hideMode: 'banner' });
+      await sleep(200);
+
+      // --- Disable / enable ---
+      chrome.storage.local.set({ extensionEnabled: false });
+      await sleep(200);
+      check('Tắt bộ lọc hiển thị lại mọi bài ngay', !isCollapsed('A') && !bannerOf('A') && !status('A') && !isCollapsed('D1'));
+      chrome.storage.local.set({ extensionEnabled: true });
+      await sleep(600);
+      check('Bật lại bộ lọc ẩn lại bài vi phạm', status('A') === 'hidden' && isCollapsed('A'));
+
+      // --- Criteria change ---
+      chrome.storage.local.set({ filterCriteria: 'công viên' });
+      await sleep(600);
+      check('Đổi tiêu chí: bài không còn khớp được hiện lại', status('A') === 'safe' && !isCollapsed('A'));
+      check('Đổi tiêu chí: bài giờ khớp bị ẩn', status('B') === 'hidden');
+      check('Kiểm tra lại bài đã xem không làm mờ lại', !$('B').classList.contains('jev-analyzing'));
+      chrome.storage.local.set({ filterCriteria: 'cá độ' });
+      await sleep(600);
+      check('Khôi phục tiêu chí', status('A') === 'hidden' && status('B') === 'safe');
+
+      // --- Facebook recycles a DOM node with new content ---
+      $('B').innerHTML = postHTML({ author: 'Nhà cái Z', body: 'Bài mới: cá độ xóc đĩa online uy tín' });
+      await sleep(1700);
+      check('Node bị tái sử dụng với nội dung mới được đánh giá lại', status('B') === 'hidden', status('B'));
+
+      // --- SPA navigation: feed replaced ---
+      $('main').innerHTML = '';
+      $('main').appendChild(makeFeed([
+        { id: 'G1', author: 'Nhóm ABC', body: 'Nhóm chuyên cá độ bóng rổ NBA' },
+        { id: 'G2', author: 'Nhóm ABC', body: 'Chia sẻ lịch tập bóng rổ cuối tuần' }
+      ]));
+      await sleep(900);
+      check('Điều hướng SPA: feed mới vẫn được lọc', status('G1') === 'hidden' && status('G2') === 'safe', `${status('G1')}/${status('G2')}`);
+
+      // --- API error → no stuck blur, retried silently later ---
+      backendMode = 'error';
+      const feed = document.querySelector('[role="feed"]');
+      const unit = document.createElement('div');
+      unit.id = 'H';
+      unit.innerHTML = postHTML({ author: 'Trang K', body: 'Tham gia cá độ ngay hôm nay' });
+      feed.appendChild(unit);
+      await sleep(900);
+      check('Lỗi API: bài không bị kẹt blur', !$('H').classList.contains('jev-analyzing') && status('H') !== 'analyzing');
+      backendMode = 'ok';
+      document.body.appendChild(document.createElement('div'));
+      await sleep(1600);
+      check('Sau khi API hồi phục, bài được thử lại và ẩn', status('H') === 'hidden', status('H'));
+
+      // --- Modern FB markup: no role=feed/article, ad-rendering markers only ---
+      const modern = document.createElement('div');
+      modern.innerHTML = ['M1|Trang M|Nhận cá độ bóng đá uy tín', 'M2|Bạn N|Chiều nay trời đẹp quá mọi người'].map(r => {
+        const [id, author, body] = r.split('|');
+        return `<div><div data-virtualized="false" id="V${id}"><div id="${id}" class="card">
+          <div><span data-ad-rendering-role="profile_name"><a role="link">${author}</a></span></div>
+          <div data-ad-rendering-role="story_message"><div dir="auto">${body}</div></div>
+          <div><img alt="ảnh"></div>
+          <div><div role="button" aria-label="Thích">Thích</div><div role="button" aria-label="Bình luận">Bình luận</div></div>
+          <div role="article" aria-label="Bình luận dưới tên X"><span dir="auto">cá độ không bạn ơi</span></div>
+        </div></div></div>`;
+      }).join('');
+      document.getElementById('main').appendChild(modern);
+      await sleep(1200);
+      const outerM1 = $('VM1');
+      check('FB mới: ẩn CẢ khung bài (không chỉ phần chữ)', outerM1.dataset.jevStatus === 'hidden' && outerM1.classList.contains('jev-post-collapsed'), outerM1.dataset.jevStatus);
+      check('FB mới: bài an toàn không bị ẩn, bình luận không bị coi là bài',
+        $('VM2').dataset.jevStatus === 'safe' && !document.querySelector('[role="article"][data-jev-status]'));
+
+      // --- Hidden post must stay stable (no blur -> hide -> blur -> hide loop) ---
+      const loopWrap = document.createElement('div');
+      loopWrap.innerHTML = `<div data-virtualized="false" id="VL"><div class="card">
+        <div><span data-ad-rendering-role="profile_name"><a role="link">Nhà cái Q</a></span></div>
+        <div data-ad-rendering-role="story_message"><div dir="auto">Dòng một: cá độ bóng đá</div><div dir="auto">Dòng hai: nạp tiền nhận thưởng</div></div>
+        <div><div role="button" aria-label="Thích">Thích</div></div>
+      </div></div>`;
+      document.getElementById('main').appendChild(loopWrap);
+      await sleep(1200);
+      const vl = $('VL');
+      check('Bài nhiều dòng được ẩn', vl.dataset.jevStatus === 'hidden', vl.dataset.jevStatus);
+      const callsLoop = calls.length;
+      const bannerLoop = bannerOf('VL');
+      let flashed = false;
+      const obs = new MutationObserver(() => { if (vl.classList.contains('jev-analyzing') || vl.dataset.jevStatus !== 'hidden') flashed = true; });
+      obs.observe(vl, { attributes: true });
+      await sleep(4500); // > 2 heartbeats
+      check('Bài đã ẩn không nhấp nháy mờ/hiện lại', !flashed && vl.dataset.jevStatus === 'hidden');
+      check('Bài đã ẩn không bị gửi lại API khi quét định kỳ', calls.length === callsLoop, `${calls.length - callsLoop} lần gọi thêm`);
+      check('Banner giữ nguyên node', bannerOf('VL') === bannerLoop);
+      bannerOf('VL').querySelector('.jev-btn-reveal').click();
+      await sleep(4500);
+      obs.disconnect();
+      check('Đã bấm Xem: bài vẫn mở, không bị ẩn lại', vl.classList.contains('jev-revealed') && !isCollapsed('VL') && calls.length === callsLoop);
+
+      // --- First screen: text revealed by a style change only (no childList mutation) ---
+      const lazy = document.createElement('div');
+      lazy.id = 'L';
+      lazy.innerHTML = postHTML({ author: 'Trang L', body: 'Khuyến mãi cá độ nạp đầu x2' });
+      lazy.querySelector('[data-ad-preview]').style.display = 'none';
+      document.querySelector('[role="feed"]').appendChild(lazy);
+      await sleep(2000); // extraction retries exhausted while text is hidden
+      lazy.querySelector('[data-ad-preview]').style.display = '';
+      await sleep(2800);
+      check('Bài hiện chữ muộn (không có node mới) vẫn tự được quét', status('L') === 'hidden', status('L'));
+
+      results.done = true;
+      const summary = document.createElement('div');
+      summary.innerHTML = `<b>${results.failed === 0 ? 'ALL PASSED' : 'FAILURES'}: ${results.passed} passed, ${results.failed} failed</b>`;
+      $('log').appendChild(summary);
+    }
+    run().catch(e => { results.done = true; results.failed++; results.failures.push(String(e)); check('harness error', false, String(e)); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Jev AI Facebook Filter",
+  "version": "1.0.0",
+  "description": "Ẩn nội dung Facebook theo tiêu chí tùy chỉnh với model Jev (TypeSafe AI) siêu tốc & siêu tiết kiệm.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "https://api.typesafe.ai/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Cài đặt Jev AI Filter"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.facebook.com/*"
+      ],
+      "js": [
+        "src/utils/settings-defaults.js",
+        "src/utils/fast-hash.js",
+        "src/content/fb-selectors.js",
+        "src/content/text-extractor.js",
+        "src/content/ui-overlay.js",
+        "src/content/content.js"
+      ],
+      "css": [
+        "src/content/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ]
+}

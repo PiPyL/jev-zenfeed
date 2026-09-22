@@ -1,0 +1,231 @@
+/* Jev AI Facebook Filter - Overlay & Banner Styles */
+
+/* Analyzing state: subtle anti-FOUC blur */
+.jev-analyzing {
+  filter: blur(3px) !important;
+  opacity: 0.8 !important;
+  transition: filter 0.25s ease, opacity 0.25s ease !important;
+  pointer-events: none !important;
+}
+
+/* Collapsed Post: hide original elements except banner */
+.jev-post-collapsed > *:not(.jev-banner) {
+  display: none !important;
+}
+
+/* ==================== Collapsed Banner ====================
+   Colors come from Facebook's own CSS variables (with light fallbacks), so the
+   banner follows FB's light/dark theme exactly — not the OS setting. */
+.jev-banner {
+  --jev-surface: var(--card-background, #ffffff);
+  --jev-text: var(--primary-text, #080809);
+  --jev-muted: var(--secondary-text, #65686c);
+  --jev-divider: var(--divider, #ced0d4);
+  --jev-accent: var(--primary-button-background, #0866ff);
+  --jev-btn-bg: var(--secondary-button-background, #e2e5e9);
+  --jev-btn-text: var(--secondary-button-text, #080809);
+  --jev-hover: var(--hover-overlay, rgba(0, 0, 0, 0.05));
+
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: 64px !important;
+  margin: 0 !important;
+  padding: 12px 16px !important;
+  background: var(--jev-surface) !important;
+  color: var(--jev-text) !important;
+  border: 0 !important;
+  border-radius: var(--card-corner-radius, 8px) !important;
+  box-shadow: var(--card-box-shadow, 0 1px 2px rgba(0, 0, 0, 0.1)) !important;
+  font-family: inherit !important;
+  line-height: 1.3333 !important;
+  text-align: left !important;
+  animation: jev-banner-in 0.18s ease-out !important;
+}
+
+@keyframes jev-banner-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
+.jev-banner-icon {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  color: var(--jev-accent) !important;
+  background: color-mix(in srgb, var(--jev-accent) 12%, transparent) !important;
+}
+
+.jev-banner-info {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+
+.jev-banner-title {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px 8px !important;
+}
+
+.jev-banner-heading {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--jev-text) !important;
+}
+
+.jev-badge-conf {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 20px !important;
+  padding: 0 8px !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  font-variant-numeric: tabular-nums !important;
+  color: var(--jev-accent) !important;
+  background: color-mix(in srgb, var(--jev-accent) 12%, transparent) !important;
+}
+
+.jev-banner-desc {
+  font-size: 13px !important;
+  color: var(--jev-muted) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Reveal / re-hide button — same look as Facebook's secondary buttons */
+.jev-btn-reveal {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 36px !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: var(--jev-btn-bg) !important;
+  color: var(--jev-btn-text) !important;
+  font-family: inherit !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+  transition: filter 0.15s ease !important;
+}
+
+.jev-btn-reveal:hover {
+  filter: brightness(0.95) !important;
+}
+
+.__fb-dark-mode .jev-btn-reveal:hover {
+  filter: brightness(1.15) !important;
+}
+
+.jev-btn-reveal:active {
+  transform: scale(0.97) !important;
+}
+
+/* Revealed: the banner turns into a slim header on top of the visible post */
+.jev-revealed > .jev-banner {
+  min-height: 0 !important;
+  padding: 8px 12px 8px 16px !important;
+  border-radius: var(--card-corner-radius, 8px) var(--card-corner-radius, 8px) 0 0 !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--jev-divider) !important;
+  animation: none !important;
+}
+
+.jev-revealed > .jev-banner .jev-banner-icon {
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.jev-revealed > .jev-banner .jev-banner-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.jev-revealed > .jev-banner .jev-banner-heading::after {
+  content: " · đang hiển thị" !important;
+  font-weight: 400 !important;
+  color: var(--jev-muted) !important;
+}
+
+.jev-revealed > .jev-banner .jev-banner-desc {
+  display: none !important;
+}
+
+.jev-revealed > .jev-banner .jev-btn-reveal {
+  height: 32px !important;
+  font-size: 13px !important;
+}
+
+@media (max-width: 480px) {
+  .jev-banner { padding: 10px 12px !important; gap: 10px !important; }
+  .jev-banner .jev-btn-label { display: none !important; }
+  .jev-btn-reveal { padding: 0 10px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jev-banner { animation: none !important; }
+  .jev-analyzing, .jev-btn-reveal { transition: none !important; }
+}
+
+/* Blurred Post Mode — blur the post's own content, never our control tag,
+   so the "Xem nội dung" button stays readable and clickable. */
+.jev-blurred-post {
+  position: relative !important;
+}
+
+.jev-blurred-post > *:not(.jev-ui) {
+  filter: blur(8px) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  transition: filter 0.3s ease !important;
+}
+
+.jev-blur-tag {
+  position: absolute !important;
+  top: 10px !important;
+  left: 10px !important;
+  background: rgba(0, 0, 0, 0.78) !important;
+  color: white !important;
+  padding: 6px 10px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+  z-index: 99 !important;
+}
+
+.jev-blur-tag button {
+  background: white !important;
+  color: black !important;
+  border: none !important;
+  padding: 3px 8px !important;
+  border-radius: 4px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.jev-btn-reveal:focus-visible,
+.jev-blur-tag button:focus-visible {
+  outline: 2px solid var(--primary-button-background, #0866ff) !important;
+  outline-offset: 2px !important;
+}

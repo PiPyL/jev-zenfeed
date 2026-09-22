@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jev AI Facebook Filter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <img src="../../icons/icon48.png" alt="Logo" class="logo">
+        <div>
+          <h1>Jev AI Filter</h1>
+          <span class="subtitle">System One Content Moderation</span>
+        </div>
+      </div>
+      <label class="switch" title="Bật/Tắt bộ lọc">
+        <input type="checkbox" id="extensionEnabled" checked>
+        <span class="slider round"></span>
+      </label>
+    </header>
+
+    <!-- API Key Section -->
+    <section class="card api-card">
+      <div class="card-title">
+        <span>🔑 TypeSafe Jev API Key</span>
+        <span id="apiStatusBadge" class="badge badge-untested">Chưa kiểm tra</span>
+      </div>
+
+      <div class="input-group">
+        <input type="password" id="apiKey" placeholder="Nhập API Key của TypeSafe AI (jev_...)" autocomplete="off">
+        <button type="button" id="toggleKeyVisibility" class="btn-icon" title="Hiện/Ẩn Key">👁️</button>
+      </div>
+
+      <!-- Warning if key is missing -->
+      <div id="apiKeyWarning" class="api-warning-box hidden">
+        <div class="warning-title">⚠️ <strong>Chưa cấu hình API Key</strong></div>
+        <div class="warning-desc">Extension không thể lọc bài viết nếu chưa có key TypeSafe hoặc Mock Server.</div>
+        <button type="button" id="btnQuickMock" class="btn-mock-action">⚡ Bật nhanh Mock Server Cục bộ (localhost:3000)</button>
+      </div>
+      
+      <div class="api-actions">
+        <button id="btnTestKey" class="btn btn-secondary">⚡ Kiểm tra kết nối</button>
+        <button id="btnToggleAdvanced" class="btn-link">Tùy chỉnh Endpoint ▾</button>
+      </div>
+
+      <div id="apiErrorNotice" class="error-notice hidden"></div>
+
+      <div id="advancedSettings" class="advanced-settings hidden">
+        <label for="apiUrl">API Base URL:</label>
+        <input type="text" id="apiUrl" value="https://api.typesafe.ai/v1" placeholder="https://api.typesafe.ai/v1">
+        <small class="hint">Hỗ trợ API gốc TypeSafe AI, Proxy Gateway hoặc Mock Server cục bộ (<code>http://localhost:3000</code>).</small>
+      </div>
+    </section>
+
+    <!-- Filter Criteria Section -->
+    <section class="card">
+      <div class="card-title">
+        <span>🎯 Tiêu chí lọc nội dung</span>
+      </div>
+      <textarea id="filterCriteria" rows="3" placeholder="Nhập tiêu chí bạn muốn ẩn (Ví dụ: Bài viết về cờ bạc, cá độ thể thao, vay nặng lãi, spoiler tập phim mới, drama showbiz giật gân...)"></textarea>
+
+      <div class="preset-label">Preset mẫu nhanh:</div>
+      <div class="chips-container">
+        <button type="button" class="chip" data-preset="Quảng cáo cờ bạc, cá độ, game bài đổi thưởng, vay tiền nhanh">🎰 Cờ bạc & Vay nợ</button>
+        <button type="button" class="chip" data-preset="Tiết lộ nội dung, spoiler cốt truyện các bộ phim chiếu rạp và series đang phát sóng">🎬 Spoiler phim</button>
+        <button type="button" class="chip" data-preset="Tin đồn vô căn cứ, drama bóc phốt giới showbiz, giật gân câu view độc hại">🤬 Drama Showbiz</button>
+        <button type="button" class="chip" data-preset="Kêu gọi đầu tư tiền ảo, meme coin rác, làm giàu nhanh, đa cấp tài chính">🪙 Crypto rác</button>
+        <button type="button" class="chip" data-preset="Bán nhà, cho thuê nhà, căn hộ cho thuê hoặc tương tự">🏠 Bất động sản</button>
+      </div>
+
+      <div class="prompt-hint">
+        💡 <strong>Mẹo:</strong> Nêu rõ các chủ đề/từ khóa muốn ẩn (VD: <em>"Cờ bạc, cá độ, vay nợ"</em>). Tránh dùng câu phủ định phức tạp (như <em>"Ẩn mọi thứ trừ..."</em>) để Jev System One phân loại chính xác nhất.
+      </div>
+    </section>
+
+    <!-- Configuration Settings -->
+    <section class="card">
+      <div class="setting-row">
+        <div>
+          <label for="confidenceThreshold" class="setting-label">Độ tin cậy lọc (Confidence):</label>
+          <div class="setting-desc">Mức độ chắc chắn của AI để quyết định ẩn bài</div>
+        </div>
+        <div class="slider-val-box">
+          <input type="range" id="confidenceThreshold" min="50" max="95" value="70" step="5">
+          <span id="thresholdDisplay" class="value-badge">70%</span>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div>
+          <label class="setting-label">Kiểu hiển thị khi ẩn:</label>
+          <div class="setting-desc">Cách xử lý bài viết vi phạm</div>
+        </div>
+        <select id="hideMode" class="select-box">
+          <option value="banner" selected>Thanh thu gọn (Khuyến nghị)</option>
+          <option value="blur">Làm mờ nội dung (Blur)</option>
+          <option value="remove">Ẩn hoàn toàn (Remove)</option>
+        </select>
+      </div>
+
+      <div class="setting-row-checkbox">
+        <input type="checkbox" id="antiFoucBlur" checked>
+        <label for="antiFoucBlur">Làm mờ tức thì bài viết trong khi chờ AI duyệt (Chống giật mắt)</label>
+      </div>
+    </section>
+
+    <!-- Usage Statistics -->
+    <section class="card stats-card">
+      <div class="stat-item">
+        <div class="stat-value" id="statScanned">0</div>
+        <div class="stat-label">Đã quét</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value highlight" id="statHidden">0</div>
+        <div class="stat-label">Đã ẩn</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="statCacheHit">0%</div>
+        <div class="stat-label">Cache Hit</div>
+      </div>
+    </section>
+
+    <!-- Live Activity Logs Section -->
+    <section class="card logs-card">
+      <div class="card-title">
+        <div class="title-with-counter">
+          <span>📋 Nhật ký hoạt động Jev</span>
+          <span id="logCountBadge" class="badge badge-untested">0 logs</span>
+        </div>
+        <div class="log-actions">
+          <button type="button" id="btnCopyLogs" class="btn-xs" title="Sao chép toàn bộ logs">📋 Chép</button>
+          <button type="button" id="btnClearLogs" class="btn-xs" title="Xóa sạch nhật ký">🧹 Xóa</button>
+        </div>
+      </div>
+
+      <!-- Filter Pills -->
+      <div class="log-filter-pills">
+        <button type="button" class="pill active" data-filter="all">Tất cả</button>
+        <button type="button" class="pill" data-filter="hide">🛡️ Đã ẩn</button>
+        <button type="button" class="pill" data-filter="ai">🤖 Jev AI</button>
+        <button type="button" class="pill" data-filter="warn">⚠️ Cảnh báo/Lỗi</button>
+      </div>
+
+      <!-- Scrollable Logs List -->
+      <div id="logsContainer" class="logs-container">
+        <div class="logs-empty">Đang chờ sự kiện... Hãy lướt Facebook để bắt đầu tracking.</div>
+      </div>
+    </section>
+
+    <!-- Save Action -->
+    <footer class="footer">
+      <button id="btnSave" class="btn btn-primary">Lưu cài đặt</button>
+      <div id="saveToast" class="save-toast hidden">✅ Đã lưu cấu hình thành công!</div>
+    </footer>
+  </div>
+
+  <script src="../utils/settings-defaults.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
