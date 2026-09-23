@@ -120,7 +120,16 @@
   color: var(--jev-text, #080809) !important;
 }
 
+/* Ẩn nút "Không phải spam" khi bài đang ở chế độ thu gọn (chế độ ẩn).
+   Người dùng phải bấm "Xem" mở nội dung để xác nhận trước rồi mới bấm được. */
+.jev-banner .jev-btn-safe {
+  display: none !important;
+}
+
+/* Khi đã bấm "Xem" (đang hiển thị nội dung): hiện nút "Không phải spam" */
 .jev-revealed > .jev-banner .jev-btn-safe {
+  display: inline-flex !important;
+  align-items: center !important;
   height: 32px !important;
 }
 

@@ -18,6 +18,7 @@ window.JevFB = window.JevFB || {};
 
   // Explicit post-body markers Facebook puts on the message block
   const MESSAGE_SELECTOR = '[data-ad-preview="message"], [data-ad-comet-preview="message"], [data-ad-rendering-role="story_message"]';
+  const ATTACHMENT_SELECTOR = '[data-ad-preview="title"], [data-ad-preview="subtitle"], [data-ad-rendering-role="title"], [data-ad-rendering-role="description"]';
   const TEXT_SELECTOR = 'div[dir="auto"], span[dir="auto"]';
   const AUTHOR_SELECTOR = '[data-ad-rendering-role="profile_name"], h2, h3, h4, strong, a[role="link"] span[dir="auto"]';
   const COMMENT_LABEL = /^(comment|reply|bình luận|phản hồi|trả lời)/i;
@@ -106,6 +107,15 @@ window.JevFB = window.JevFB || {};
       }
     }
 
+    // Link titles and shared-preview text sit outside the caption. Include them
+    // even when a message block exists, or a harmless caption hides the ad.
+    for (const node of postEl.querySelectorAll(ATTACHMENT_SELECTOR)) {
+      if (isExcluded(node, postEl) || node.closest(MESSAGE_SELECTOR)) continue;
+      const text = readText(node);
+      if (!text || text.length < 2 || UI_STOP_WORDS.has(text.toLowerCase())) continue;
+      push(text);
+    }
+
     return parts.join('\n').trim();
   }
 
@@ -113,7 +123,7 @@ window.JevFB = window.JevFB || {};
    * Extract clean text, author, and metadata from a Facebook post container
    * @param {HTMLElement} postEl
    * @returns {{text: string, author: string, hash: string, head: string, notReady?: boolean}|null}
-   *   hash — fingerprint of the full content (decision cache key)
+   *   hash — fingerprint of the clipped text sent to the model (decision cache key)
    *   head — beginning of the body; with the author it identifies the post
    *          across "See more" expansion (see JevFB.isSamePost)
    */
@@ -123,16 +133,18 @@ window.JevFB = window.JevFB || {};
     const author = extractAuthor(postEl);
     const fullText = extractBody(postEl);
 
-    // Too short => lazy content not rendered yet (caller retries)
-    if (!fullText || fullText.length < 10) {
+    // Text-only stubs under 10 chars are usually still loading. A short hook
+    // next to an image or a link preview is the whole ad, so score it.
+    const hasMedia = !!postEl.querySelector('img, video, [data-ad-preview="title"]');
+    const minChars = hasMedia ? 4 : 10;
+    if (!fullText || fullText.length < minChars) {
       return { notReady: true };
     }
 
-    // Combine author, length, head (500 chars), and tail (300 chars) to prevent collision on boilerplate intros
-    const textFingerprint = fullText.length <= 800
-      ? fullText
-      : `${fullText.slice(0, 500)}:::len_${fullText.length}:::${fullText.slice(-300)}`;
-    const hash = JevFB.fastHash(`${author}:::${textFingerprint}`);
+    // Hash the exact string the model will see. Head/tail-only fingerprints
+    // reused a decision for posts that differed in the middle.
+    const payload = JevFB.clipPostText ? JevFB.clipPostText(fullText) : fullText;
+    const hash = JevFB.fastHash(`${author}:::${payload}`);
     const head = fullText.slice(0, IDENTITY_PREFIX_CHARS);
 
     return { author, text: fullText, hash, head };

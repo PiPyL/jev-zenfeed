@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Active Noise Cancellation for your eyes.</strong><br>
-  <em>(Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.)</em>
+  <em>The first AI-powered active noise cancellation for your social feed.</em>
 </p>
 
 <p align="center">
@@ -24,6 +24,7 @@
   <a href="#-architecture">Architecture</a> •
   <a href="#-development--testing">Testing</a> •
   <a href="#-contributing">Contributing</a> •
+  <a href="PRIVACY.md">Privacy Policy</a> •
   <a href="README.vi.md">🇻🇳 Bản Tiếng Việt</a>
 </p>
 
@@ -40,7 +41,7 @@ Powered by the **Jev (TypeSafe AI)** System One architecture, ZenFeed delivers s
 - 🎧 **Active Noise Cancellation for Eyes:** Automatically collapses or softly blurs posts matching your personal criteria before they interrupt your attention.
 - ⚡ **Sub-200ms Decision Speed:** Ultra-fast Bernoulli Boolean classification via Jev System One with calibrated confidence scoring.
 - 🔒 **100% BYOK (Bring Your Own Key) & Privacy First:** Direct client-to-AI communication over TLS 1.3. No intermediate tracking servers, no telemetry, no cookies captured, never touches private messages or credentials.
-- 🎯 **Atomic Questions & Whitelist Guard:** Evaluates violation criteria and whitelist exceptions independently. For example: block unwanted job spam while safely preserving IT & AI developer job opportunities!
+- 🎯 **Atomic Questions & Whitelist Guard:** Evaluates violation criteria and whitelist exceptions independently. A whitelist exemption needs its own 70% bar and must be at least as strong as the violation, so lowering or raising the hide threshold cannot silently keep or drop those posts. For example: block unwanted job spam while safely preserving IT & AI developer job opportunities!
 - 👁️ **Reading-Zone Aware & Zero-CLS:**
   - Preserves layout height when blurring posts to prevent disruptive page jumping (CLS = 0).
   - Delay collapse if a post is currently in the active reading viewport (top 65%).

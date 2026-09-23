@@ -189,6 +189,24 @@
 
       // --- Initial evaluation ---
       check('Không đọc apiKey/apiUrl từ storage', !requestedKeys.has('apiKey') && !requestedKeys.has('apiUrl'), [...requestedKeys].join(','));
+      const previewCard = document.createElement('div');
+      previewCard.innerHTML = '<span data-ad-rendering-role="profile_name"><a role="link">Page</a></span><div data-ad-preview="message"><div dir="auto">Xem ngay kẻo lỡ</div></div><div data-ad-preview="title">Kèo cá độ bóng đá hôm nay</div>';
+      const previewData = JevFB.extractPostData(previewCard);
+      check('Tiêu đề link preview được đưa vào nội dung lọc', !!(previewData && previewData.text.includes('Kèo cá độ bóng đá hôm nay')), previewData && previewData.text);
+      const shortAd = document.createElement('div');
+      shortAd.innerHTML = '<span data-ad-rendering-role="profile_name"><a role="link">Page</a></span><div data-ad-preview="message"><div dir="auto">Nổ hũ</div></div><img alt="game bài đổi thưởng">';
+      const shortData = JevFB.extractPostData(shortAd);
+      check('Bài ngắn có ảnh không bị bỏ qua', !!(shortData && !shortData.notReady && shortData.text.includes('Nổ hũ')), shortData && shortData.text);
+      const head = 'A'.repeat(700);
+      const tail = 'Z'.repeat(300);
+      const midCard = (marker) => {
+        const el = document.createElement('div');
+        el.innerHTML = `<span data-ad-rendering-role="profile_name"><a role="link">Same</a></span><div data-ad-preview="message"><div dir="auto">${head}${marker}${tail}</div></div>`;
+        return JevFB.extractPostData(el);
+      };
+      const midA = midCard('MIDDLE_ONE');
+      const midB = midCard('MIDDLE_TWO');
+      check('Hai bài khác đoạn giữa không dùng chung hash', !!(midA && midB && midA.hash !== midB.hash && JevFB.clipPostText(midA.text).includes('MIDDLE_ONE')));
       check('Bài vi phạm A bị thu gọn bằng banner', status('A') === 'hidden' && isCollapsed('A') && !!bannerOf('A'));
       check('Bài an toàn B hiển thị bình thường', status('B') === 'safe' && !$('B').classList.contains('jev-analyzing'));
       check('Bình luận KHÔNG ảnh hưởng quyết định (C an toàn)', status('C') === 'safe');
@@ -218,7 +236,7 @@
       check('Banner giữ nguyên & trạng thái "đã mở" được giữ', bannerOf('A') === bannerNode && $('A').classList.contains('jev-revealed'));
 
       // --- hideMode change → blur, control tag not blurred ---
-      chrome.storage.local.set({ hideMode: 'blur' });
+      chrome.storage.local.set({ hideMode: 'blur', blurPreset: 'classic' });
       await sleep(200);
       const tag = $('A').querySelector(':scope > .jev-blur-tag');
       const firstChild = [...$('A').children].find(c => !c.classList.contains('jev-ui'));
@@ -432,6 +450,10 @@
       // --- "Ẩn nhầm" button ---
       const safeBtn = bannerOf('G1') && bannerOf('G1').querySelector('.jev-btn-safe');
       check('Banner có nút "Ẩn nhầm"', !!safeBtn);
+      check('Chế độ ẩn: nút "Ẩn nhầm" không hiển thị', safeBtn && getComputedStyle(safeBtn).display === 'none');
+      const revealBtn = bannerOf('G1') && bannerOf('G1').querySelector('.jev-btn-reveal');
+      revealBtn && revealBtn.click();
+      check('Chế độ xem: nút "Ẩn nhầm" hiển thị', safeBtn && getComputedStyle(safeBtn).display !== 'none');
       const callsSafe = calls.length;
       safeBtn && safeBtn.click();
       await sleep(100);
@@ -449,46 +471,33 @@
       // of sleeping a guessed duration.
       backendDelayMs = 400;
 
-      // --- Reading zone: a FRESH violation scrolled into view is blurred in
-      // place (no collapse, no height change), never an instant banner ---
+      // --- Reading zone: bài mới trong vùng đọc bị vi phạm -> thu gọn thành banner ngay theo đúng hideMode: 'banner' ---
       const fresh = document.createElement('div');
       fresh.id = 'RZ_FRESH';
       fresh.innerHTML = postHTML({ author: 'Trang F', body: 'Kèo cá độ tối nay siêu hot' });
       document.querySelector('[role="feed"]').appendChild(fresh);
-      // Scroll it into place BEFORE it is ever scanned/evaluated (not after):
-      // otherwise a fast scan could decide it while still off-screen (an
-      // immediate, correct collapse — just not the scenario this test wants)
-      // and the later scroll would arrive too late to observe the fresh
-      // in-reading-zone blur this test is actually checking for.
       showInReadingZone($('RZ_FRESH'));
-      await sleep(400); // registration (SCAN_THROTTLE_MS+idle) done; decision (backendDelayMs=400 from then) not yet
+      await sleep(400); // registration done
       check('Chế độ Mượt: bài mới trong vùng đọc KHÔNG bị mờ trong lúc chờ AI',
         !$('RZ_FRESH').classList.contains('jev-blurred-post') && !$('RZ_FRESH').querySelector(':scope > .jev-blur-tag-pending'));
       await waitFor(() => status('RZ_FRESH') === 'hidden');
-      const freshTag = $('RZ_FRESH').querySelector(':scope > .jev-blur-tag');
-      check('Bài mới trong vùng đọc bị vi phạm -> mờ tại chỗ, KHÔNG banner ngay',
-        status('RZ_FRESH') === 'hidden' && !!freshTag && !freshTag.classList.contains('jev-blur-tag-pending') &&
-        !bannerOf('RZ_FRESH') && !isCollapsed('RZ_FRESH'), status('RZ_FRESH'));
-      // Once DECIDED as a violation, the in-place blur intentionally still
-      // blocks clicks on the illegible content underneath (same as the
-      // long-standing hideMode:'blur' behavior) — only the PRE-decision
-      // "Checking..." wait (tested below, strict mode) must never block.
-      check('Mờ SAU quyết định vẫn chặn click nội dung gốc (như chế độ Blur)',
-        getComputedStyle([...$('RZ_FRESH').children].find(c => !c.classList.contains('jev-ui'))).pointerEvents === 'none');
-      scrollAway();
-      await waitFor(() => isCollapsed('RZ_FRESH'));
-      check('Cuộn ra khỏi màn hình: mờ tại chỗ chuyển thành banner thật',
+      check('Chế độ Banner: bài mới trong vùng đọc vi phạm -> thu gọn thành banner ngay, không hiển thị giao diện mờ',
         status('RZ_FRESH') === 'hidden' && isCollapsed('RZ_FRESH') && !!bannerOf('RZ_FRESH') &&
-        !$('RZ_FRESH').querySelector(':scope > .jev-blur-tag'));
+        !$('RZ_FRESH').classList.contains('jev-blurred-post'));
+      scrollAway();
+      await sleep(200);
+      check('Cuộn ra khỏi màn hình: banner vẫn hiển thị ổn định',
+        status('RZ_FRESH') === 'hidden' && isCollapsed('RZ_FRESH') && !!bannerOf('RZ_FRESH'));
 
       // --- Reading zone: the user interacting with a post exempts it from
       // ever being auto-collapsed, even fresh, even after it scrolls away ---
+      backendDelayMs = 1200;
       const inter = document.createElement('div');
       inter.id = 'RZ_INTERACTED';
       inter.innerHTML = postHTML({ author: 'Trang I', body: 'Kèo cá độ cực đỉnh hôm nay' });
       document.querySelector('[role="feed"]').appendChild(inter);
       showInReadingZone($('RZ_INTERACTED')); // in place before the first scan, same reason as RZ_FRESH above
-      await sleep(600); // scanned & registered (click listener attached) before we click it below
+      await sleep(400); // scanned & registered (click listener attached) before we click it below
       $('RZ_INTERACTED').querySelector('[role="toolbar"]').click(); // simulate Like, before the decision lands
       await waitFor(() => status('RZ_INTERACTED') === 'hidden');
       check('Đã tương tác: quyết định ẩn chỉ gắn nhãn góc dù bài còn mới',
@@ -511,13 +520,13 @@
       await sleep(100);
 
       // --- Quét ngầm (Silent Scanning): hoàn toàn không làm mờ và không chèn component "Đang kiểm tra" ---
-      backendDelayMs = 500;
+      backendDelayMs = 1000;
       const pend = document.createElement('div');
       pend.id = 'RZ_PENDING';
       pend.innerHTML = postHTML({ author: 'Trang P', body: 'Kèo cá độ hot nhất tối nay' });
       document.querySelector('[role="feed"]').appendChild(pend);
       showInReadingZone($('RZ_PENDING')); // in place before the first scan
-      await sleep(250); // while waiting for AI decision
+      await sleep(500); // give time for registration
       const hasPendingTag = !!$('RZ_PENDING').querySelector(':scope > .jev-blur-tag-pending');
       const isPostBlurred = $('RZ_PENDING').classList.contains('jev-blurred-post');
       check('Quét ngầm: bài mới trong vùng đọc KHÔNG bị mờ khi đang chờ AI', !isPostBlurred);

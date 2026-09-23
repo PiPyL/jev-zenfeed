@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "ZenFeed",
+    "description": "Name der Erweiterung"
+  },
+  "extDescription": {
+    "message": "Aktive Geräuschunterdrückung für Ihre Augen. KI-gestützter Facebook-Feed-Filter.",
+    "description": "Beschreibung der Erweiterung"
+  }
+}

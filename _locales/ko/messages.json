@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "ZenFeed",
+    "description": "확장 프로그램 이름"
+  },
+  "extDescription": {
+    "message": "눈을 위한 액티브 노이즈 캔슬링. AI 기반 페이스북 피드 필터.",
+    "description": "확장 프로그램 설명"
+  }
+}

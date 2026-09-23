@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "ZenFeed",
+    "description": "拡張機能の名前"
+  },
+  "extDescription": {
+    "message": "瞳のためのアクティブノイズキャンセリング。AIでFacebookフィードをクリーンに。",
+    "description": "拡張機能の説明"
+  }
+}

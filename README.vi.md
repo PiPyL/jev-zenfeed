@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>"Active Noise Cancellation for your eyes."</strong><br>
-  <em>(Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.)</em>
+  <strong>Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.</strong><br>
+  <em>Lọc Facebook thông minh bằng AI — Trả lại sự tĩnh lặng cho tâm trí bạn.</em>
 </p>
 
 <p align="center">
@@ -24,6 +24,7 @@
   <a href="#-cấu-trúc-mã-nguồn">Cấu Trúc</a> •
   <a href="#-kiểm-thử-tự-động">Kiểm Thử</a> •
   <a href="#-đóng-góp-phát-triển">Đóng Góp</a> •
+  <a href="PRIVACY.md">Chính Sách Bảo Mật</a> •
   <a href="README.md">🇬🇧 English Version</a>
 </p>
 
@@ -40,7 +41,7 @@
 - 🎧 **Chống Ồn Cho Mắt:** Thu gọn hoặc làm mờ nhẹ nhàng các bài viết vi phạm tiêu chí trước khi chúng kịp làm phiền tâm trí bạn.
 - ⚡ **Quyết Định Siêu Tốc (Sub-200ms):** Sử dụng kiến trúc System One của Jev, phản hồi dạng nhị phân (Bernoulli Boolean) kèm độ tin cậy được hiệu chuẩn.
 - 🔒 **Mô hình BYOK (Bring Your Own Key) & Bảo Mật Tuyệt Đối:** Kết nối trực tiếp giữa máy bạn và AI qua giao thức TLS 1.3 mã hóa. Không máy chủ trung gian, không theo dõi ngầm, không telemetry, không chạm vào mật khẩu hay tin nhắn riêng tư.
-- 🎯 **Kiến Trúc Atomic Questions & Whitelist An Toàn:** Tách biệt độc lập câu hỏi vi phạm và câu hỏi ngoại lệ (Whitelist). Ví dụ: bạn có thể lọc bỏ toàn bộ tin tuyển dụng rác nhưng vẫn giữ lại 100% tin tuyển dụng IT/AI!
+- 🎯 **Kiến Trúc Atomic Questions & Whitelist An Toàn:** Tách biệt câu hỏi vi phạm và câu hỏi ngoại lệ. Ngoại lệ chỉ được tha khi đạt ngưỡng riêng 70% và không yếu hơn điểm vi phạm, nên kéo thanh độ tin cậy không làm đổi các bài đang được giữ. Ví dụ: lọc tin tuyển dụng rác nhưng vẫn giữ tin tuyển dụng IT/AI.
 - 👁️ **Bảo Vệ Vùng Đọc & Tránh Giật Khung Hình (Zero-CLS):**
   - Chế độ làm mờ giữ nguyên chiều cao khung bài, không làm nhảy trang (Cumulative Layout Shift = 0).
   - Trì hoãn thu gọn nếu bài viết đang nằm trong tầm mắt đọc (65% phía trên màn hình).

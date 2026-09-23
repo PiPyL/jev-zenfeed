@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "ZenFeed",
+    "description": "Tên tiện ích"
+  },
+  "extDescription": {
+    "message": "Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt. Lọc Facebook bằng AI.",
+    "description": "Mô tả tiện ích"
+  }
+}

@@ -6,8 +6,7 @@
  *   2. Service worker (ES module): side-effect import registers self.__jevFastHash
  *
  * NOTE: 32-bit FNV-1a is a fast fingerprint, NOT a cryptographic hash.
- * Combined with author + length + head/tail sampling in text-extractor.js,
- * collision risk at cache scale (<=3000 entries) is negligible.
+ * The content hash is author plus the clipped text the model actually sees.
  */
 (function registerFastHash(root) {
   function fastHash(str) {

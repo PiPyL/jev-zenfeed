@@ -1,7 +1,7 @@
 {
   "name": "zenfeed",
   "version": "1.0.0",
-  "description": "Active Noise Cancellation for your eyes. (Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.) Chrome Extension lọc Facebook bằng AI.",
+  "description": "Active Noise Cancellation for your eyes - AI-powered Facebook feed filter Chrome Extension.",
   "type": "module",
   "scripts": {
     "test": "node test/test-jev-mock.js",

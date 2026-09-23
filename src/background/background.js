@@ -5,7 +5,7 @@
  * activity logging.
  */
 
-import { evaluateWithJev, testApiKey } from './jev-client.js';
+import { evaluateWithJev, shouldHidePost, testApiKey } from './jev-client.js';
 import * as decisionCache from './decision-cache.js';
 import { addLog, getLogs, clearLogs } from '../utils/logger.js';
 import '../utils/fast-hash.js'; // F12: side-effect import registers self.__jevFastHash
@@ -13,7 +13,7 @@ import '../utils/settings-defaults.js'; // F14: side-effect import registers sel
 import '../utils/i18n.js'; // F18: side-effect import registers self.__jevI18n
 
 const simpleHash = self.__jevFastHash;
-const { DEFAULT_SETTINGS, criteriaTopics, criteriaFingerprint } = self.__jevDefaults;
+const { DEFAULT_SETTINGS, filterTopics, criteriaFingerprint } = self.__jevDefaults;
 const { t: i18nT } = self.__jevI18n;
 
 // One-time cleanup: the cache and logs used to live in storage.local, where
@@ -44,7 +44,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 const hasKey = (config = settings) => !!(config.apiKey && config.apiKey.trim());
-const hasCriteria = (config = settings) => criteriaTopics(config.filterCriteria).length > 0;
+const hasCriteria = (config = settings) => filterTopics(config.filterCriteria).length > 0;
 
 // ==================== TOOLBAR BADGE ====================
 // Per tab: number of posts hidden. Globally: OFF / "!" when the filter cannot
@@ -466,7 +466,7 @@ async function handleBatchEvaluation(items) {
     if (raw.error) return { id: item.id, shouldHide: false, confidence: 0, error: true };
     const result = {
       id: item.id,
-      shouldHide: raw.violation === true && raw.confidence >= threshold && !(raw.whitelistConfidence >= threshold),
+      shouldHide: shouldHidePost(raw.violation === true, raw.confidence, threshold, raw.whitelistConfidence),
       confidence: raw.confidence,
       fromCache: raw.fromCache === true
     };
@@ -512,7 +512,7 @@ function logApiBatch(results, sent, threshold, ms) {
   const ok = results.filter(r => !r.error);
   if (ok.length > 0 && apiFailing) { apiFailing = false; updateHealth(); }
 
-  const hidden = ok.filter(r => r.violation && r.confidence >= threshold && !(r.whitelistConfidence >= threshold));
+  const hidden = ok.filter(r => shouldHidePost(r.violation === true, r.confidence, threshold, r.whitelistConfidence));
   hidden.forEach((r) => {
     addLog({
       level: 'success',

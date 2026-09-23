@@ -14,7 +14,7 @@
     extensionEnabled: true,
     apiKey: '',
     apiUrl: 'https://api.typesafe.ai/v1',
-    filterCriteria: 'Gambling and betting ads, predatory high-interest loans, sensationalized fake news, movie/show spoilers, real estate for sale or rent',
+    filterCriteria: 'Gambling ads, sports betting, card games for money, fast cash loans, plot spoilers for movies and series, celebrity gossip and toxic clickbait, crypto investment pitches, junk meme coins, get-rich-quick schemes, houses for sale, rentals, apartments for rent',
     whitelistCriteria: '',
     confidenceThreshold: 70,
     hideMode: 'banner',
@@ -45,11 +45,17 @@
     'blurPreset', 'blurFlashcardTopic', 'blurCustomQuotes', 'blurRevealFriction'
   ]);
 
+  // ASCII comma/semicolon plus the ideographic list marks used by zh/ja presets.
+  const TOPIC_SPLIT = /[\n,;、，；]+/;
+  // A leading or inline exception is a keep-topic, not another thing to hide.
+  const EXCEPTION_SPLIT = /\s+(?:trừ|ngoại trừ|ngoại lệ|không ẩn|đừng ẩn|except|unless|but not|other than)\s+/i;
+  const EXCEPTION_PREFIX = /^(?:trừ|ngoại trừ|ngoại lệ|không ẩn|đừng ẩn|except|unless|but not|other than)\s+(.+)$/i;
+
   /**
-   * Split criteria into distinct topics (comma / semicolon / newline separated),
-   * folding whitespace and dropping case-insensitive duplicates. Original case
-   * and order are kept — this is what gets sent to the model.
-   * Completely language-agnostic: no regex guessing, no language-specific keywords.
+   * Split criteria into distinct topics (comma / semicolon / newline / ideographic
+   * comma), folding whitespace and dropping case-insensitive duplicates.
+   * Original case and order are kept. This is the raw list used for cache
+   * identity. The model receives filterTopics(), which drops exception phrases.
    *
    * @param {string} criteria
    * @returns {string[]}
@@ -57,7 +63,7 @@
   function criteriaTopics(criteria) {
     const seen = new Set();
     const topics = [];
-    String(criteria || '').normalize('NFC').split(/[\n,;]+/).forEach((raw) => {
+    String(criteria || '').normalize('NFC').split(TOPIC_SPLIT).forEach((raw) => {
       const topic = raw.replace(/\s+/g, ' ').trim();
       const key = topic.toLowerCase();
       if (topic && !seen.has(key)) {
@@ -66,6 +72,42 @@
       }
     });
     return topics;
+  }
+
+  /**
+   * Hide-topics stay in state.criteria. Exception phrases ("trừ X", "except X")
+   * become keep-topics so they are not classified as something to hide.
+   * @param {string} criteria
+   * @returns {{hide: string[], except: string[]}}
+   */
+  function partitionCriteria(criteria) {
+    const hide = [];
+    const except = [];
+    const seenHide = new Set();
+    const seenExcept = new Set();
+    const push = (list, seen, topic) => {
+      const text = String(topic || '').replace(/\s+/g, ' ').trim();
+      const key = text.toLowerCase();
+      if (!text || seen.has(key)) return;
+      seen.add(key);
+      list.push(text);
+    };
+    criteriaTopics(criteria).forEach((segment) => {
+      segment.split(EXCEPTION_SPLIT).forEach((piece, index) => {
+        const prefixed = piece.match(EXCEPTION_PREFIX);
+        if (index === 0 && !prefixed) push(hide, seenHide, piece);
+        else push(except, seenExcept, prefixed ? prefixed[1] : piece);
+      });
+    });
+    return { hide, except };
+  }
+
+  function filterTopics(criteria) {
+    return partitionCriteria(criteria).hide;
+  }
+
+  function exceptionTopics(criteria) {
+    return partitionCriteria(criteria).except;
   }
 
   /**
@@ -88,7 +130,11 @@
     root.JevFB.DEFAULT_SETTINGS = DEFAULT_SETTINGS;
     root.JevFB.PUBLIC_SETTING_KEYS = PUBLIC_SETTING_KEYS;
     root.JevFB.criteriaTopics = criteriaTopics;
+    root.JevFB.filterTopics = filterTopics;
+    root.JevFB.exceptionTopics = exceptionTopics;
     root.JevFB.criteriaFingerprint = criteriaFingerprint;
-    root.__jevDefaults = { DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, criteriaFingerprint };
+    root.__jevDefaults = {
+      DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, filterTopics, exceptionTopics, criteriaFingerprint
+    };
   }
 })(typeof self !== 'undefined' ? self : globalThis);

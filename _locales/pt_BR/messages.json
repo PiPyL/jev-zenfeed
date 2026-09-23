@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "ZenFeed",
+    "description": "Nome da extensão"
+  },
+  "extDescription": {
+    "message": "Cancelamento ativo de ruído para os seus olhos. Filtre o Facebook com IA.",
+    "description": "Descrição da extensão"
+  }
+}

@@ -24,6 +24,7 @@ if (fs.existsSync(zipFilePath)) {
 
 const filesToInclude = [
   'manifest.json',
+  '_locales',
   'icons',
   'src',
   'README.md',

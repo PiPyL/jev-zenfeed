@@ -293,7 +293,7 @@
   function rerenderHiddenPosts() {
     tracked.forEach(el => {
       const st = postState.get(el);
-      const deferredMode = el.dataset.jevHideMode === 'soft' || el.dataset.jevHideMode === 'reading-blur';
+      const deferredMode = el.dataset.jevHideMode === 'soft';
       if (el.dataset.jevStatus === 'hidden' && !deferredMode && st && st.decision) {
         JevFB.hidePost(el, st.decision, hideOpts());
       }
@@ -493,10 +493,10 @@
   /** Whether the mode-appropriate hidden artifact is still present in the DOM. */
   function hideArtifactMissing(el) {
     if (el.dataset.jevHideMode === 'soft') return !el.querySelector(':scope > .jev-corner-label');
-    if (el.dataset.jevHideMode === 'reading-blur') {
+    if (config.hideMode === 'remove') return el.dataset.jevRemoved !== 'true';
+    if (config.hideMode === 'blur') {
       return !el.querySelector(':scope > .jev-blur-canvas, :scope > .jev-blur-tag');
     }
-    if (config.hideMode === 'remove') return el.dataset.jevRemoved !== 'true';
     return !el.querySelector(':scope > .jev-ui');
   }
 
@@ -517,30 +517,11 @@
     JevFB.hidePost(el, decision, hideOpts());
   }
 
-  /** Fresh in the reading zone, not yet decided-hidden: blur in place (no
-   *  height change) with the REAL reason, distinct from the pre-decision
-   *  "Checking..." tag. Reuses the confirmed hide's own bookkeeping mode
-   *  ('reading-blur') so a later hideMode change or repair pass can tell it
-   *  apart from the user's permanent blur-mode setting. */
-  function applyReadingBlur(el, decision) {
-    if (el.dataset.jevHideMode === 'reading-blur' &&
-        el.querySelector(':scope > .jev-blur-canvas, :scope > .jev-blur-tag')) return;
-    JevFB.unhidePost(el);
-    el.dataset.jevStatus = 'hidden';
-    el.dataset.jevHideMode = 'reading-blur';
-    el.classList.add('jev-blurred-post');
-    JevFB.injectBlurControls(el, decision, hideOpts());
-  }
-
   /**
    * THE decision matrix for a confirmed violation. Never called until
    * `st.decision.shouldHide` is true.
-   *   not in the reading zone         -> collapse for real, right now
-   *   interacted, or already read     -> quiet corner label, defer collapse
-   *   fresh in the reading zone       -> blur in place, defer collapse
-   * "Defer" means: finalize into the user's real hideMode once the post
-   * leaves the reading zone (`finalizeDeferredCollapse`), or immediately if
-   * the user taps "Collapse" (`JevFB.onForceCollapse`).
+   *   interacted by user -> quiet corner label, defer collapse so user interaction is not lost
+   *   normal violation   -> collapse/hide immediately according to user's hideMode setting
    */
   function applyHideDecision(el, st) {
     const decision = st.decision;
@@ -557,20 +538,15 @@
     // disabling the filter, or FB recycling the node (unhidePost).
     if (el.classList.contains('jev-revealed')) return;
 
-    if (!st.inReadingZone) {
-      st.pendingCollapse = false;
-      collapseNow(el, decision);
+    if (st.interacted || clearSeenMs(st) >= CLEAR_SEEN_MS) {
+      if (!st.pendingCollapse) reportDeferred();
+      st.pendingCollapse = true;
+      JevFB.applySoftLabel(el, decision, { criteria: config.filterCriteria, lang: config.language });
       return;
     }
 
-    if (!st.pendingCollapse) reportDeferred();
-    st.pendingCollapse = true;
-
-    if (st.interacted || clearSeenMs(st) >= CLEAR_SEEN_MS) {
-      JevFB.applySoftLabel(el, decision, { criteria: config.filterCriteria, lang: config.language });
-    } else {
-      applyReadingBlur(el, decision);
-    }
+    st.pendingCollapse = false;
+    collapseNow(el, decision);
   }
 
   /** The post left the reading zone while a collapse was deferred: apply it
@@ -886,6 +862,12 @@
     } else if (pendingScanRoots.size > 0) {
       scanPendingRoots();
     }
+
+    // Immediately evaluate any posts whose DOM was modified
+    tracked.forEach(postEl => {
+      const st = postState.get(postEl);
+      if (st && st.domDirty && postEl.isConnected) evaluatePost(postEl);
+    });
 
     // Mutation records mark affected visible cards dirty. This slower safety
     // pass also catches DOM changes Facebook performs outside observed nodes.
