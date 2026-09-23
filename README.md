@@ -1,22 +1,28 @@
-# 🛡️ Jev AI Facebook Filter (Chrome Extension)
+# 🛡️ ZenFeed
 
-Extension thông minh giúp tự động phát hiện và ẩn các bài viết trên Facebook theo tiêu chí bạn tự định nghĩa, sử dụng model **Jev (TypeSafe AI)** — mô hình "System One" siêu tốc với chi phí siêu rẻ ($0.042 / 1M tokens) và độ trễ tính bằng mili-giây.
+> ### **"Active Noise Cancellation for your eyes."** ⭐
+> *(Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.)*
+
+**ZenFeed** là Chrome Extension mã nguồn mở (Open Source) giúp tự động phát hiện và thu gọn các bài viết trên Facebook theo tiêu chí bạn tự định nghĩa bằng ngôn ngữ tự nhiên. Ứng dụng tích hợp mô hình **Jev (TypeSafe AI)** — kiến trúc "System One" siêu tốc với độ trễ sub-200ms, chi phí siêu rẻ ($0.042 / 1M tokens), bảo mật 100% BYOK và không qua máy chủ trung gian.
 
 ---
 
 ## ✨ Tính Năng Nổi Bật
 
+* **🎧 Active Noise Cancellation cho Đôi Mắt:** Tương tự như tai nghe chống ồn loại bỏ tạp âm, ZenFeed dùng AI để loại bỏ "tạp âm thị giác" (cờ bạc, tin giật gân, bóc phốt, đa cấp, spoilers) ngay trên News Feed của bạn.
 * **Mô hình BYOK (Bring Your Own Key):** Người dùng tự nhập API Key của mình, không qua server trung gian. API Key chỉ nằm trong background/popup, không bao giờ được đưa vào trang Facebook.
 * **Quyền riêng tư:** Nội dung văn bản bài viết (kèm tên tác giả) được gửi tới endpoint Jev/TypeSafe AI bạn cấu hình để phân loại. Bình luận không được gửi đi.
 * **Quyết định Siêu tốc (Sub-200ms):** Sử dụng kiến trúc System One của Jev, phản hồi dạng nhị phân (Bernoulli Boolean) kèm độ tin cậy được hiệu chuẩn.
 * **Cơ chế Tiết kiệm Token Tối ưu:**
-  * **IntersectionObserver:** Chỉ phân tích bài viết khi sắp cuộn vào tầm nhìn (trước ~150px để kịp ẩn trước khi bạn thấy); bài chưa cuộn tới không tốn token.
-  * **Gửi mỗi nội dung đúng 1 lần:** Nội dung bài chỉ xuất hiện một lần trong request; bài trùng nội dung (cùng quảng cáo hiện nhiều lần, nhiều tab) chỉ được đánh giá một lần.
-  * **LRU Cache bền vững:** Lưu kết quả duyệt bài theo mã băm FNV-1a. Cuộn lại bài cũ hoặc đổi ngưỡng tin cậy: kết quả có ngay, **0 token**. Kết quả lỗi không bao giờ được lưu cache.
+  * **IntersectionObserver:** Phân tích bài trước khoảng 1 màn hình để kịp ẩn trước khi bạn thấy; bài chưa cuộn tới không tốn token.
+  * **Request gọn:** Nội dung bài và tiêu chí đều chỉ xuất hiện một lần trong request (rubric dùng chung, tham chiếu `state.criteria`); bài dài được cắt giữ phần đầu + cuối. Bài trùng nội dung (cùng quảng cáo, nhiều tab) chỉ được đánh giá một lần.
+  * **LRU Cache bền vững (IndexedDB):** Lưu kết quả theo mã băm FNV-1a. Cuộn lại bài cũ, đổi ngưỡng, hay đổi thứ tự/khoảng trắng trong tiêu chí: kết quả có ngay, **0 token**. Kết quả lỗi không bao giờ được lưu cache.
+  * **"Xem thêm" không tốn thêm token:** Bài mở rộng chỉ được duyệt lại khi nội dung tăng đáng kể.
 * **Trải nghiệm Không Gián Đoạn (Anti-FOUC & Collapsed Banner):**
   * Làm mờ bài viết tức thì trong tích tắc chờ AI duyệt.
   * Khi phát hiện bài vi phạm, thu gọn thành **Thanh thông báo** (không làm giật trang/nhảy khung hình).
-  * Cho phép người dùng bấm **"Xem nội dung"** bất cứ lúc nào nếu muốn.
+  * Cho phép người dùng bấm **"Xem"** bất cứ lúc nào, hoặc **"Ẩn nhầm"** để bài đó không bao giờ bị ẩn lại (không gọi API).
+* **Badge trên icon:** Hiện số bài đã ẩn trong tab; `!` khi thiếu API key/tiêu chí hoặc API đang lỗi; `OFF` khi tắt.
 * **Preset Mẫu 1-Click:** Tích hợp sẵn các bộ lọc thông dụng: Chống cờ bạc/cá độ, Chống spoiler phim, Chống drama showbiz câu view, Chống rác tiền ảo.
 
 ---
@@ -27,22 +33,22 @@ Extension thông minh giúp tự động phát hiện và ẩn các bài viết 
 1. Mở trình duyệt Chrome và truy cập đường dẫn: `chrome://extensions`
 2. Bật công tắc **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
 3. Bấm vào nút **Tải tiện ích đã giải nén (Load unpacked)** ở góc trên bên trái.
-4. Chọn thư mục dự án:
+4. Chọn thư mục dự án `zenfeed`:
    ```
    /Users/mac/Desktop/jev-facebook-filter
    ```
-5. Icon của **Jev AI Filter** sẽ xuất hiện trên thanh công cụ của trình duyệt. Bạn nên ghim (pin) icon này để dễ truy cập.
+5. Icon của **ZenFeed** sẽ xuất hiện trên thanh công cụ của trình duyệt. Bạn nên ghim (pin) icon này để dễ truy cập.
 
 ---
 
 ### Bước 2: Cấu hình API Key & Tiêu Chí Lọc
-1. Bấm vào icon **Jev AI Filter** trên thanh công cụ để mở Popup.
+1. Bấm vào icon **ZenFeed** trên thanh công cụ để mở Popup.
 2. Nhập API Key TypeSafe Jev của bạn vào ô **API Key**. *(Nếu dùng proxy hoặc Vercel AI Gateway, bấm "Tùy chỉnh Endpoint" để đổi URL — Chrome sẽ hỏi cấp quyền truy cập domain đó).*
 3. Bấm nút **⚡ Kiểm tra kết nối** để xác nhận API Key hoạt động bình thường.
 4. Chọn một Preset có sẵn hoặc tự gõ tiêu chí bạn muốn ẩn vào ô text.
    * *Ví dụ: "Bài viết về cá độ bóng đá, quảng cáo game bài, cho vay nặng lãi, tin giật gân bóc phốt showbiz"*
 5. Điều chỉnh ngưỡng độ tin cậy (mặc định: **70%**).
-6. Bấm **Lưu cài đặt**. Thay đổi áp dụng ngay trên các tab Facebook đang mở (không cần tải lại trang). Công tắc Bật/Tắt có hiệu lực ngay khi gạt.
+6. Cài đặt **tự lưu** và áp dụng ngay trên các tab Facebook đang mở. Riêng tiêu chí lọc cần bấm **Áp dụng** (hoặc Ctrl/⌘ + Enter) — để tiêu chí gõ dở không làm tốn token; bản nháp được giữ lại nếu bạn đóng popup.
 
 ---
 
@@ -64,7 +70,8 @@ jev-facebook-filter/
 ├── icons/                     # Bộ icon 16x16, 48x48, 128x128
 ├── src/
 │   ├── background/
-│   │   ├── background.js      # Service Worker: Quản lý cache, xử lý tin nhắn
+│   │   ├── background.js      # Service Worker: xử lý batch, badge, tin nhắn
+│   │   ├── decision-cache.js  # Cache quyết định (IndexedDB, LRU)
 │   │   └── jev-client.js      # Module gọi API TypeSafe Jev (Parallel batching)
 │   ├── content/
 │   │   ├── content.js         # Mutation & Intersection Observer trên Facebook
@@ -75,7 +82,7 @@ jev-facebook-filter/
 │   ├── utils/
 │   │   ├── settings-defaults.js # Cài đặt mặc định dùng chung (single source)
 │   │   ├── fast-hash.js       # FNV-1a hash dùng chung
-│   │   └── logger.js          # Nhật ký hoạt động (ghi theo lô)
+│   │   └── logger.js          # Nhật ký hoạt động (ghi theo lô, storage.session)
 │   └── popup/
 │       ├── popup.html         # Giao diện cài đặt tiện ích
 │       ├── popup.css          # Tùy biến giao diện popup hiện đại
@@ -83,6 +90,7 @@ jev-facebook-filter/
 └── test/
     ├── test-jev-mock.js       # Kiểm thử tự động (Node)
     ├── content-harness.html   # Kiểm thử content script trên DOM giả lập (trình duyệt)
+    ├── run-harness-headless.js # Chạy harness bằng Chrome headless
     ├── mock-jev-server.js     # Mock Server Jev cục bộ
     └── static-server.js       # Server tĩnh cho harness
 ```
@@ -99,3 +107,7 @@ Kiểm thử content script trên DOM Facebook giả lập (chạy trong trình 
 npm run harness
 ```
 Sau đó mở `http://localhost:8765/test/content-harness.html` — trang hiển thị danh sách PASS/FAIL.
+Hoặc chạy tự động bằng Chrome headless (đặt `CHROME_PATH` nếu Chrome không ở vị trí mặc định của macOS):
+```bash
+npm run harness:headless
+```

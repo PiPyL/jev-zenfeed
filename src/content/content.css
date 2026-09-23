@@ -104,6 +104,38 @@
   text-overflow: ellipsis !important;
 }
 
+.jev-banner-actions {
+  flex: 0 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+/* "Ẩn nhầm" — quiet text button, secondary to "Xem" */
+.jev-btn-safe {
+  height: 36px !important;
+  margin: 0 !important;
+  padding: 0 10px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--jev-muted, #65686c) !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+}
+
+.jev-btn-safe:hover {
+  background: var(--jev-hover, rgba(0, 0, 0, 0.05)) !important;
+  color: var(--jev-text, #080809) !important;
+}
+
+.jev-revealed > .jev-banner .jev-btn-safe {
+  height: 32px !important;
+}
+
 /* Reveal / re-hide button — same look as Facebook's secondary buttons */
 .jev-btn-reveal {
   flex: 0 0 auto !important;
@@ -177,6 +209,7 @@
   .jev-banner { padding: 10px 12px !important; gap: 10px !important; }
   .jev-banner .jev-btn-label { display: none !important; }
   .jev-btn-reveal { padding: 0 10px !important; }
+  .jev-btn-safe { padding: 0 6px !important; font-size: 12px !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -224,7 +257,16 @@
   cursor: pointer !important;
 }
 
+.jev-blur-tag .jev-btn-safe {
+  height: auto !important;
+  padding: 3px 6px !important;
+  background: transparent !important;
+  color: #e4e6eb !important;
+  font-size: 11px !important;
+}
+
 .jev-btn-reveal:focus-visible,
+.jev-btn-safe:focus-visible,
 .jev-blur-tag button:focus-visible {
   outline: 2px solid var(--primary-button-background, #0866ff) !important;
   outline-offset: 2px !important;

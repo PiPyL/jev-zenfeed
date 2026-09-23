@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build and cache
+dist/
+build/
+.astro/
+web/node_modules/
+web/dist/
+web/.astro/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE and logs
+.claude/
+.vscode/
+*.log

@@ -112,10 +112,10 @@ window.JevFB = window.JevFB || {};
   /**
    * Extract clean text, author, and metadata from a Facebook post container
    * @param {HTMLElement} postEl
-   * @returns {{text: string, author: string, hash: string, identity: string, notReady?: boolean}|null}
-   *   hash     — fingerprint of the full content (decision cache key)
-   *   identity — author + beginning of the body; stays stable when "See more"
-   *              expands the text, used to detect Facebook recycling a DOM node
+   * @returns {{text: string, author: string, hash: string, head: string, notReady?: boolean}|null}
+   *   hash — fingerprint of the full content (decision cache key)
+   *   head — beginning of the body; with the author it identifies the post
+   *          across "See more" expansion (see JevFB.isSamePost)
    */
   JevFB.extractPostData = function(postEl) {
     if (!postEl) return null;
@@ -133,8 +133,21 @@ window.JevFB = window.JevFB || {};
       ? fullText
       : `${fullText.slice(0, 500)}:::len_${fullText.length}:::${fullText.slice(-300)}`;
     const hash = JevFB.fastHash(`${author}:::${textFingerprint}`);
-    const identity = JevFB.fastHash(`${author}:::${fullText.slice(0, IDENTITY_PREFIX_CHARS)}`);
+    const head = fullText.slice(0, IDENTITY_PREFIX_CHARS);
 
-    return { author, text: fullText, hash, identity };
+    return { author, text: fullText, hash, head };
+  };
+
+  /**
+   * True if `next` is the same post as `prev` (possibly expanded or trimmed),
+   * false if Facebook recycled the DOM node for a different post. Compared as
+   * a prefix relation, so a short post that grows past the head length via
+   * "See more" is still recognized as the same post.
+   * @param {{author: string, head: string}} prev
+   * @param {{author: string, head: string}} next
+   */
+  JevFB.isSamePost = function(prev, next) {
+    if (prev.author !== next.author) return false;
+    return next.head.startsWith(prev.head) || prev.head.startsWith(next.head);
   };
 })();

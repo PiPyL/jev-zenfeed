@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
   const extensionEnabled = document.getElementById('extensionEnabled');
+  const toggleFilterLabel = document.getElementById('toggleFilterLabel');
   const apiKeyInput = document.getElementById('apiKey');
   const toggleKeyVisibility = document.getElementById('toggleKeyVisibility');
   const btnTestKey = document.getElementById('btnTestKey');
@@ -11,6 +12,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const advancedSettings = document.getElementById('advancedSettings');
   const apiUrlInput = document.getElementById('apiUrl');
   const filterCriteriaInput = document.getElementById('filterCriteria');
+  const criteriaStatus = document.getElementById('criteriaStatus');
+  const btnApplyCriteria = document.getElementById('btnApplyCriteria');
   const confidenceSlider = document.getElementById('confidenceThreshold');
   const thresholdDisplay = document.getElementById('thresholdDisplay');
   const hideModeSelect = document.getElementById('hideMode');
@@ -18,10 +21,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statScanned = document.getElementById('statScanned');
   const statHidden = document.getElementById('statHidden');
   const statCacheHit = document.getElementById('statCacheHit');
-  const btnSave = document.getElementById('btnSave');
+  const btnClearCache = document.getElementById('btnClearCache');
   const saveToast = document.getElementById('saveToast');
   const presetChips = document.querySelectorAll('.chip');
   const apiErrorNotice = document.getElementById('apiErrorNotice');
+  const languageSelect = document.getElementById('languageSelect');
+  const tabButtons = document.querySelectorAll('.tab-btn');
+  const tabPanels = { activity: document.getElementById('panelActivity'), settings: document.getElementById('panelSettings') };
 
   // Logs Elements
   const logCountBadge = document.getElementById('logCountBadge');
@@ -33,54 +39,181 @@ document.addEventListener('DOMContentLoaded', async () => {
   let activeLogFilter = 'all';
   let cachedLogs = [];
 
-  // Load existing settings
   // F14: single source of defaults (src/utils/settings-defaults.js)
-  const DEFAULT_SETTINGS = window.JevFB.DEFAULT_SETTINGS;
+  const { DEFAULT_SETTINGS, criteriaFingerprint } = window.JevFB;
+  // F18: single source of translated strings (src/utils/i18n.js)
+  const { SUPPORTED_LANGUAGES, t: translate, normalizeLanguage } = window.JevFB;
   const defaults = {
     ...DEFAULT_SETTINGS,
     stats: { scanned: 0, hidden: 0, cacheHits: 0 }
   };
 
+  let currentLang = DEFAULT_SETTINGS.language;
+  const t = (key, params) => translate(currentLang, key, params);
+
+  // ==================== i18n ====================
+
+  SUPPORTED_LANGUAGES.forEach(({ code, name }) => {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = name;
+    languageSelect.appendChild(opt);
+  });
+
+  const PRESET_IDS = ['gambling', 'spoiler', 'drama', 'crypto', 'realestate'];
+
+  const PRESET_ICONS = {
+    gambling: `<svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.5" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.5" fill="currentColor"/></svg>`,
+    spoiler: `<svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/></svg>`,
+    drama: `<svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>`,
+    crypto: `<svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 8h4.5a2 2 0 1 1 0 4H9m0 0h5a2 2 0 1 1 0 4H9m0-8v8m2-10v2m2-2v2m-2 16v2m2-2v2"/></svg>`,
+    realestate: `<svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/></svg>`
+  };
+
+  const ICON_EYE = `<svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const ICON_EYE_OFF = `<svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>`;
+
+  function updateToggleKeyIcon() {
+    toggleKeyVisibility.innerHTML = apiKeyInput.type === 'password' ? ICON_EYE : ICON_EYE_OFF;
+  }
+
+  function applyPresetChips() {
+    presetChips.forEach((chip) => {
+      const id = chip.dataset.presetId;
+      const icon = PRESET_ICONS[id] || '';
+      const text = t(`preset_${id}_label`);
+      chip.innerHTML = `${icon}<span>${text}</span>`;
+      chip.dataset.preset = t(`preset_${id}_text`);
+    });
+  }
+
+  function applyI18n() {
+    document.documentElement.lang = currentLang;
+    document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll('[data-i18n-html]').forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+    document.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
+    toggleFilterLabel.title = t('toggleFilterTitle');
+    btnClearCacheTitleRefresh();
+    btnCopyLogs.title = t('btnCopyLogsTitle');
+    btnClearLogs.title = t('btnClearLogsTitle');
+    updateToggleKeyIcon();
+    btnToggleAdvanced.textContent = advancedSettings.classList.contains('hidden') ? t('btnToggleAdvancedShow') : t('btnToggleAdvancedHide');
+    applyPresetChips();
+    updateChips();
+    updateCriteriaStatusText();
+    apiStatusBadge.textContent = t(apiBadgeKey);
+    renderLogs();
+  }
+
+  function btnClearCacheTitleRefresh() {
+    if (!btnClearCache.classList.contains('confirm')) btnClearCache.title = t('btnClearCacheTitle');
+  }
+
+  // The API badge's text depends on runtime state (saved/untested/testing/error...),
+  // not just the current language — data-i18n would blindly overwrite it on every
+  // language switch, so its key is tracked separately and re-applied here.
+  let apiBadgeKey = 'badgeUntested';
+  function setApiBadge(key, className) {
+    apiBadgeKey = key;
+    apiStatusBadge.textContent = t(key);
+    apiStatusBadge.className = className;
+  }
+
+  // ==================== TABS ====================
+
+  const TAB_KEY = 'jevActiveTab';
+  function setActiveTab(tabName) {
+    tabButtons.forEach((btn) => {
+      const active = btn.dataset.tab === tabName;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+    });
+    Object.entries(tabPanels).forEach(([name, panel]) => panel.classList.toggle('hidden', name !== tabName));
+    try { localStorage.setItem(TAB_KEY, tabName); } catch (_) {}
+  }
+
+  tabButtons.forEach((btn) => btn.addEventListener('click', () => setActiveTab(btn.dataset.tab)));
+
+  let initialTab = 'activity';
+  try { initialTab = localStorage.getItem(TAB_KEY) || 'activity'; } catch (_) {}
+  if (!tabPanels[initialTab]) initialTab = 'activity';
+  setActiveTab(initialTab);
+
+  // Unsaved criteria survive closing the popup (per-browser convenience only)
+  const DRAFT_KEY = 'jevCriteriaDraft';
+  const readDraft = () => { try { return localStorage.getItem(DRAFT_KEY); } catch (_) { return null; } };
+  const writeDraft = (v) => {
+    try { v == null ? localStorage.removeItem(DRAFT_KEY) : localStorage.setItem(DRAFT_KEY, v); } catch (_) {}
+  };
+
+  let savedCriteria = DEFAULT_SETTINGS.filterCriteria;
+  let savedApiKey = '';
+  let savedApiUrl = DEFAULT_SETTINGS.apiUrl;
+
   chrome.storage.local.get(defaults, (data) => {
+    currentLang = normalizeLanguage(data.language);
+    languageSelect.value = currentLang;
+
     extensionEnabled.checked = data.extensionEnabled;
     apiKeyInput.value = data.apiKey || '';
     apiUrlInput.value = data.apiUrl || DEFAULT_SETTINGS.apiUrl;
-    filterCriteriaInput.value = data.filterCriteria;
     confidenceSlider.value = data.confidenceThreshold;
     thresholdDisplay.textContent = `${data.confidenceThreshold}%`;
     hideModeSelect.value = data.hideMode;
     antiFoucBlurCheckbox.checked = data.antiFoucBlur;
 
-    updateKeyWarningState();
+    savedCriteria = data.filterCriteria;
+    savedApiKey = apiKeyInput.value.trim();
+    savedApiUrl = apiUrlInput.value.trim();
+    const draft = readDraft();
+    filterCriteriaInput.value = draft != null ? draft : data.filterCriteria;
 
-    // Render stats
+    applyI18n();
+    updateCriteriaState();
+    updateKeyWarningState();
     updateStatsDisplay(data.stats);
 
     if (data.apiKey) {
-      apiStatusBadge.textContent = 'Đã lưu key';
-      apiStatusBadge.className = 'badge badge-success';
+      setApiBadge('badgeSaved', 'badge badge-success');
     } else {
-      apiStatusBadge.textContent = 'Chưa nhập key';
-      apiStatusBadge.className = 'badge badge-error';
+      setApiBadge('badgeNotEntered', 'badge badge-error');
     }
   });
 
-  function updateKeyWarningState() {
-    const key = apiKeyInput.value.trim();
-    if (!key) {
-      apiKeyWarning.classList.remove('hidden');
-    } else {
-      apiKeyWarning.classList.add('hidden');
-    }
+  languageSelect.addEventListener('change', () => {
+    currentLang = normalizeLanguage(languageSelect.value);
+    applyI18n();
+    chrome.storage.local.set({ language: currentLang });
+  });
+
+  // ==================== SAVING ====================
+  // Every setting saves itself; content scripts pick changes up through
+  // storage.onChanged (the API key is never broadcast to Facebook tabs).
+
+  let toastTimer = null;
+  function showToast(message, isError = false) {
+    saveToast.textContent = message || t('saveToastDefault');
+    saveToast.classList.toggle('toast-error', isError);
+    saveToast.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => saveToast.classList.add('hidden'), 1600);
   }
 
-  apiKeyInput.addEventListener('input', () => {
-    updateKeyWarningState();
-  });
+  function save(partial, message) {
+    return chrome.storage.local.set(partial).then(
+      () => { showToast(message); return true; },
+      () => { showToast(t('saveToastError'), true); return false; }
+    );
+  }
+
+  function updateKeyWarningState() {
+    apiKeyWarning.classList.toggle('hidden', !!apiKeyInput.value.trim());
+  }
 
   function updateStatsDisplay(stats = {}) {
     const scanned = stats.scanned || 0;
-    const hidden = stats.hidden || 0;
+    const hidden = Math.max(0, stats.hidden || 0);
     const cacheHits = stats.cacheHits || 0;
     statScanned.textContent = scanned.toLocaleString();
     statHidden.textContent = hidden.toLocaleString();
@@ -88,54 +221,119 @@ document.addEventListener('DOMContentLoaded', async () => {
     statCacheHit.textContent = `${hitRate}%`;
   }
 
-  // Slider change
-  confidenceSlider.addEventListener('input', (e) => {
-    thresholdDisplay.textContent = `${e.target.value}%`;
+  // On/off switch, threshold, display mode, blur: take effect immediately
+  extensionEnabled.addEventListener('change', () => {
+    save({ extensionEnabled: extensionEnabled.checked }, extensionEnabled.checked ? t('toastEnabled') : t('toastDisabled'));
   });
 
-  // Toggle API key visibility
-  toggleKeyVisibility.addEventListener('click', () => {
-    const isPass = apiKeyInput.type === 'password';
-    apiKeyInput.type = isPass ? 'text' : 'password';
-    toggleKeyVisibility.textContent = isPass ? '🙈' : '👁️';
+  confidenceSlider.addEventListener('input', () => {
+    thresholdDisplay.textContent = `${confidenceSlider.value}%`;
+  });
+  // `change` fires on release: one save (and one 0-token re-gate) per adjustment
+  confidenceSlider.addEventListener('change', () => {
+    save({ confidenceThreshold: parseInt(confidenceSlider.value, 10) });
   });
 
-  // Toggle advanced settings
-  btnToggleAdvanced.addEventListener('click', () => {
-    advancedSettings.classList.toggle('hidden');
-    btnToggleAdvanced.textContent = advancedSettings.classList.contains('hidden') 
-      ? 'Tùy chỉnh Endpoint ▾' 
-      : 'Ẩn Endpoint ▴';
+  hideModeSelect.addEventListener('change', () => save({ hideMode: hideModeSelect.value }));
+  antiFoucBlurCheckbox.addEventListener('change', () => save({ antiFoucBlur: antiFoucBlurCheckbox.checked }));
+
+  // ==================== CRITERIA ====================
+  // NOT saved on every keystroke: each saved criteria re-evaluates the posts
+  // on screen, so half-typed criteria would cost tokens. The user applies
+  // explicitly (button / Ctrl+Enter); the draft is kept if the popup closes.
+
+  function isCriteriaDirty() {
+    return criteriaFingerprint(filterCriteriaInput.value) !== criteriaFingerprint(savedCriteria);
+  }
+
+  function updateCriteriaStatusText() {
+    const dirty = isCriteriaDirty();
+    criteriaStatus.textContent = dirty ? t('criteriaDirty') : t('criteriaApplied');
+    criteriaStatus.classList.toggle('dirty', dirty);
+    btnApplyCriteria.disabled = !dirty;
+  }
+
+  function updateCriteriaState() {
+    writeDraft(isCriteriaDirty() ? filterCriteriaInput.value : null);
+    updateCriteriaStatusText();
+    updateChips();
+  }
+
+  async function applyCriteria() {
+    if (!isCriteriaDirty()) return;
+    const value = filterCriteriaInput.value.trim();
+    if (await save({ filterCriteria: value }, t('toastCriteriaApplied'))) {
+      savedCriteria = value;
+      updateCriteriaState();
+    }
+  }
+
+  filterCriteriaInput.addEventListener('input', updateCriteriaState);
+  filterCriteriaInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      applyCriteria();
+    }
   });
+  btnApplyCriteria.addEventListener('click', applyCriteria);
 
-  // Quick 1-click Mock Server Setup
-  btnQuickMock.addEventListener('click', async () => {
-    apiKeyInput.value = 'mock_jev_test_key_local';
-    apiUrlInput.value = 'http://localhost:3000';
-    advancedSettings.classList.remove('hidden');
-    btnToggleAdvanced.textContent = 'Ẩn Endpoint ▴';
-    updateKeyWarningState();
+  // Preset chips toggle: click adds the preset, click again removes it
+  const normalize = (s) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 
-    // Save first, then test the connection automatically
-    await saveSettings();
-    btnTestKey.click();
-  });
+  function updateChips() {
+    const current = normalize(filterCriteriaInput.value);
+    presetChips.forEach(chip => {
+      const active = !!chip.dataset.preset && current.includes(normalize(chip.dataset.preset));
+      chip.classList.toggle('active', active);
+      chip.setAttribute('aria-pressed', String(active));
+    });
+  }
 
-  // Preset chips click
   presetChips.forEach(chip => {
     chip.addEventListener('click', () => {
       const preset = chip.dataset.preset;
       const current = filterCriteriaInput.value.trim();
-      if (!current) {
-        filterCriteriaInput.value = preset;
-      } else if (!current.includes(preset)) {
-        filterCriteriaInput.value = `${current}\n${preset}`;
+      if (chip.classList.contains('active')) {
+        filterCriteriaInput.value = current
+          .split('\n')
+          .filter(line => normalize(line) !== normalize(preset))
+          .join('\n')
+          .trim();
+      } else {
+        filterCriteriaInput.value = current ? `${current}\n${preset}` : preset;
       }
+      updateCriteriaState();
       filterCriteriaInput.focus();
     });
   });
 
-  // ==================== CUSTOM ENDPOINT PERMISSION ====================
+  // ==================== API KEY / ENDPOINT ====================
+
+  apiKeyInput.addEventListener('input', updateKeyWarningState);
+
+  // Saved when the field is committed (blur / Enter), not per keystroke
+  apiKeyInput.addEventListener('change', () => {
+    const key = apiKeyInput.value.trim();
+    if (key === savedApiKey) return;
+    save({ apiKey: key }, key ? t('toastApiKeySaved') : t('toastApiKeyDeleted')).then((ok) => {
+      if (ok) savedApiKey = key;
+    });
+    setApiBadge(key ? 'badgeUntested' : 'badgeNotEntered', key ? 'badge badge-untested' : 'badge badge-error');
+  });
+
+  toggleKeyVisibility.addEventListener('click', () => {
+    const isPass = apiKeyInput.type === 'password';
+    apiKeyInput.type = isPass ? 'text' : 'password';
+    updateToggleKeyIcon();
+  });
+
+  btnToggleAdvanced.addEventListener('click', () => {
+    advancedSettings.classList.toggle('hidden');
+    btnToggleAdvanced.textContent = advancedSettings.classList.contains('hidden')
+      ? t('btnToggleAdvancedShow')
+      : t('btnToggleAdvancedHide');
+  });
+
   // Endpoints outside the manifest's host_permissions need an optional host
   // permission, otherwise requests depend on the server's CORS setup.
   const BUILTIN_HOSTS = new Set(['api.typesafe.ai', 'localhost', '127.0.0.1']);
@@ -149,6 +347,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  const originOf = (u) => `${u.protocol}//${u.hostname}/*`;
+
   /**
    * MUST be called synchronously at the start of a click handler (the
    * permission prompt requires a user gesture, which an earlier await would lose).
@@ -158,127 +358,124 @@ document.addEventListener('DOMContentLoaded', async () => {
     const u = parseApiUrl(rawUrl);
     if (!u) return Promise.resolve(false);
     if (BUILTIN_HOSTS.has(u.hostname)) return Promise.resolve(true);
-    return chrome.permissions.request({ origins: [`${u.protocol}//${u.hostname}/*`] }).catch(() => false);
+    return chrome.permissions.request({ origins: [originOf(u)] }).catch(() => false);
+  }
+
+  function hideApiError() {
+    apiErrorNotice.classList.add('hidden');
+    apiErrorNotice.textContent = '';
   }
 
   function showApiError(message) {
-    if (!apiErrorNotice) return;
     apiErrorNotice.textContent = `⚠️ ${message}`;
     apiErrorNotice.classList.remove('hidden');
   }
 
-  // Test connection
-  btnTestKey.addEventListener('click', async () => {
+  // A committed endpoint saves itself when no permission prompt is needed;
+  // otherwise "Test Connection" (a click, which may show the prompt) saves it.
+  apiUrlInput.addEventListener('change', async () => {
+    const url = apiUrlInput.value.trim() || DEFAULT_SETTINGS.apiUrl;
+    if (url === savedApiUrl) return;
+    const u = parseApiUrl(url);
+    if (!u) {
+      showApiError(t('errApiUrlProtocol'));
+      return;
+    }
+    hideApiError();
+    const granted = BUILTIN_HOSTS.has(u.hostname) ||
+      await chrome.permissions.contains({ origins: [originOf(u)] }).catch(() => false);
+    if (!granted) {
+      showApiError(t('errPermissionNeeded', { host: u.hostname }));
+      return;
+    }
+    if (await save({ apiUrl: url }, t('toastEndpointSaved'))) savedApiUrl = url;
+  });
+
+  /** Save key + endpoint, then test them. Call synchronously from a click. */
+  async function saveAndTestConnection() {
     const key = apiKeyInput.value.trim();
     const url = apiUrlInput.value.trim() || DEFAULT_SETTINGS.apiUrl;
     const permissionPromise = ensureHostPermission(url); // keep user gesture
-
-    if (apiErrorNotice) {
-      apiErrorNotice.classList.add('hidden');
-      apiErrorNotice.textContent = '';
-    }
+    hideApiError();
 
     if (!parseApiUrl(url)) {
-      apiStatusBadge.textContent = 'URL không hợp lệ';
-      apiStatusBadge.className = 'badge badge-error';
-      showApiError('API Base URL phải bắt đầu bằng http:// hoặc https://');
+      setApiBadge('badgeInvalidUrl', 'badge badge-error');
+      advancedSettings.classList.remove('hidden');
+      showApiError(t('errApiUrlProtocol'));
       return;
     }
 
     if (!key) {
-      apiStatusBadge.textContent = 'Chưa nhập key';
-      apiStatusBadge.className = 'badge badge-error';
+      setApiBadge('badgeNotEntered', 'badge badge-error');
       apiKeyInput.focus();
       return;
     }
 
-    apiStatusBadge.textContent = 'Đang kiểm tra...';
-    apiStatusBadge.className = 'badge badge-testing';
+    setApiBadge('badgeTesting', 'badge badge-testing');
     btnTestKey.disabled = true;
 
     try {
       if (!(await permissionPromise)) {
-        throw new Error(`Chưa cấp quyền truy cập ${parseApiUrl(url).hostname}`);
+        throw new Error(t('errPermissionMissing', { host: parseApiUrl(url).hostname }));
       }
-      const response = await chrome.runtime.sendMessage({
-        action: 'TEST_API_KEY',
-        apiKey: key,
-        apiUrl: url
-      });
+      if (key !== savedApiKey || url !== savedApiUrl) {
+        await chrome.storage.local.set({ apiKey: key, apiUrl: url });
+        savedApiKey = key;
+        savedApiUrl = url;
+      }
+      const response = await chrome.runtime.sendMessage({ action: 'TEST_API_KEY', apiKey: key, apiUrl: url, lang: currentLang });
 
       if (response && response.success) {
-        apiStatusBadge.textContent = 'Kết nối tốt (Jev OK)';
-        apiStatusBadge.className = 'badge badge-success';
+        setApiBadge('badgeConnGood', 'badge badge-success');
         apiKeyWarning.classList.add('hidden');
-        if (apiErrorNotice) apiErrorNotice.classList.add('hidden');
       } else {
-        const errMsg = response?.error || 'Lỗi xác thực';
-        apiStatusBadge.textContent = 'Lỗi kết nối';
-        apiStatusBadge.className = 'badge badge-error';
-        if (apiErrorNotice) {
-          apiErrorNotice.textContent = `⚠️ ${errMsg}`;
-          apiErrorNotice.classList.remove('hidden');
-        }
+        setApiBadge('badgeConnError', 'badge badge-error');
+        showApiError(response?.error || t('errInvalidOrUnapproved'));
       }
     } catch (err) {
-      apiStatusBadge.textContent = 'Lỗi gọi API';
-      apiStatusBadge.className = 'badge badge-error';
-      if (apiErrorNotice) {
-        apiErrorNotice.textContent = `⚠️ ${err.message}`;
-        apiErrorNotice.classList.remove('hidden');
-      }
+      setApiBadge('badgeApiCallError', 'badge badge-error');
+      showApiError(err.message);
     } finally {
       btnTestKey.disabled = false;
-      loadLiveLogs(); // Refresh logs after test
     }
-  });
-
-  /**
-   * Save all settings. Content scripts pick changes up via storage.onChanged,
-   * so nothing (in particular the API key) is broadcast to Facebook tabs.
-   */
-  function saveSettings() {
-    const apiUrl = apiUrlInput.value.trim() || DEFAULT_SETTINGS.apiUrl;
-    const permissionPromise = ensureHostPermission(apiUrl); // keep user gesture
-
-    if (!parseApiUrl(apiUrl)) {
-      showApiError('API Base URL phải bắt đầu bằng http:// hoặc https://');
-      advancedSettings.classList.remove('hidden');
-      apiUrlInput.focus();
-      return Promise.resolve(false);
-    }
-
-    const settings = {
-      extensionEnabled: extensionEnabled.checked,
-      apiKey: apiKeyInput.value.trim(),
-      apiUrl,
-      filterCriteria: filterCriteriaInput.value.trim(),
-      confidenceThreshold: parseInt(confidenceSlider.value, 10),
-      hideMode: hideModeSelect.value,
-      antiFoucBlur: antiFoucBlurCheckbox.checked
-    };
-
-    return chrome.storage.local.set(settings).then(async () => {
-      saveToast.classList.remove('hidden');
-      setTimeout(() => saveToast.classList.add('hidden'), 2500);
-      updateKeyWarningState();
-
-      if (!(await permissionPromise)) {
-        showApiError(`Chưa cấp quyền truy cập ${parseApiUrl(apiUrl).hostname} — bộ lọc có thể không gọi được endpoint này.`);
-      }
-      return true;
-    });
   }
 
-  // On/off switch takes effect immediately (no need to press Save)
-  extensionEnabled.addEventListener('change', () => {
-    chrome.storage.local.set({ extensionEnabled: extensionEnabled.checked });
+  btnTestKey.addEventListener('click', saveAndTestConnection);
+
+  // Quick 1-click Mock Server Setup
+  btnQuickMock.addEventListener('click', () => {
+    apiKeyInput.value = 'mock_jev_test_key_local';
+    apiUrlInput.value = 'http://localhost:3000';
+    advancedSettings.classList.remove('hidden');
+    btnToggleAdvanced.textContent = t('btnToggleAdvancedHide');
+    updateKeyWarningState();
+    saveAndTestConnection();
   });
 
-  // Save settings on button click
-  btnSave.addEventListener('click', saveSettings);
+  // ==================== CACHE ====================
+  // Two-step confirm: clearing makes every post cost tokens again.
+  let clearConfirmTimer = null;
+  btnClearCache.addEventListener('click', async () => {
+    const textEl = btnClearCache.querySelector('.btn-text') || btnClearCache;
+    if (!btnClearCache.classList.contains('confirm')) {
+      btnClearCache.classList.add('confirm');
+      textEl.textContent = t('btnClearCacheConfirm');
+      clearConfirmTimer = setTimeout(resetClearCache, 3000);
+      return;
+    }
+    resetClearCache();
+    const res = await chrome.runtime.sendMessage({ action: 'CLEAR_CACHE' }).catch(() => null);
+    showToast(res && res.success ? t('toastCacheCleared') : t('toastCacheClearFail'), !(res && res.success));
+  });
 
-  // ==================== LIVE LOGS LOGIC ====================
+  function resetClearCache() {
+    clearTimeout(clearConfirmTimer);
+    btnClearCache.classList.remove('confirm');
+    const textEl = btnClearCache.querySelector('.btn-text') || btnClearCache;
+    textEl.textContent = t('btnClearCache');
+  }
+
+  // ==================== LIVE LOGS ====================
 
   async function loadLiveLogs() {
     try {
@@ -288,41 +485,58 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderLogs();
       }
     } catch (err) {
-      console.warn('Không thể tải logs:', err);
+      console.warn('Could not load logs:', err);
     }
   }
 
   const LOG_LEVELS = new Set(['info', 'success', 'warn', 'error', 'ai']);
   const MAX_LOGS = 150;
 
+  function matchesFilter(item) {
+    switch (activeLogFilter) {
+      case 'hide': return item.tag === 'ẨN BÀI' || item.level === 'success';
+      case 'ai': return item.tag === 'JEV-AI' || item.level === 'ai';
+      case 'warn': return item.level === 'warn' || item.level === 'error' || item.tag === 'WARN' || item.tag === 'ERROR';
+      default: return true;
+    }
+  }
+
+  function logEntryHtml(log) {
+    const levelClass = `level-${LOG_LEVELS.has(log.level) ? log.level : 'info'}`;
+    return `
+      <div class="log-entry ${levelClass}">
+        <div class="log-entry-header">
+          <span class="log-time">${escapeHtml(log.time || '')}</span>
+          <span class="log-tag-badge">${escapeHtml(log.tag || 'INFO')}</span>
+        </div>
+        <div class="log-text">${escapeHtml(log.message || '')}</div>
+      </div>
+    `;
+  }
+
+  function renderEmpty() {
+    logsContainer.innerHTML = `<div class="logs-empty">${escapeHtml(cachedLogs.length === 0 ? t('logsEmptyNoLogs') : t('logsEmptyFiltered'))}</div>`;
+  }
+
+  /** Full render — only on open, filter change and clear. */
   function renderLogs() {
-    logCountBadge.textContent = `${cachedLogs.length} logs`;
-
-    const filtered = cachedLogs.filter(item => {
-      if (activeLogFilter === 'all') return true;
-      if (activeLogFilter === 'hide') return item.tag === 'ẨN BÀI' || item.level === 'success';
-      if (activeLogFilter === 'ai') return item.tag === 'JEV-AI' || item.level === 'ai';
-      if (activeLogFilter === 'warn') return item.level === 'warn' || item.level === 'error' || item.tag === 'WARN' || item.tag === 'ERROR';
-      return true;
-    });
-
+    logCountBadge.textContent = t('logCountLabel', { count: cachedLogs.length });
+    const filtered = cachedLogs.filter(matchesFilter);
     if (filtered.length === 0) {
-      logsContainer.innerHTML = `<div class="logs-empty">${cachedLogs.length === 0 ? 'Chưa có nhật ký hoạt động nào. Hãy lướt Facebook để bắt đầu tracking.' : 'Không có log phù hợp với bộ lọc hiện tại.'}</div>`;
+      renderEmpty();
       return;
     }
+    logsContainer.innerHTML = filtered.map(logEntryHtml).join('');
+  }
 
-    logsContainer.innerHTML = filtered.map(log => {
-      const levelClass = `level-${LOG_LEVELS.has(log.level) ? log.level : 'info'}`;
-      return `
-        <div class="log-entry ${levelClass}">
-          <div class="log-entry-header">
-            <span class="log-time">${escapeHtml(log.time || '')}</span>
-            <span class="log-tag-badge">${escapeHtml(log.tag || 'INFO')}</span>
-          </div>
-          <div class="log-text">${escapeHtml(log.message || '')}</div>
-        </div>
-      `;
-    }).join('');
+  /** Live updates: prepend only the new entries instead of rebuilding the list. */
+  function prependLogs(newLogs) {
+    logCountBadge.textContent = t('logCountLabel', { count: cachedLogs.length });
+    const visibleNew = newLogs.filter(matchesFilter);
+    if (visibleNew.length === 0) return;
+    logsContainer.querySelector('.logs-empty')?.remove();
+    logsContainer.insertAdjacentHTML('afterbegin', visibleNew.map(logEntryHtml).join(''));
+    while (logsContainer.children.length > MAX_LOGS) logsContainer.lastElementChild.remove();
   }
 
   function escapeHtml(str) {
@@ -334,7 +548,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       .replace(/'/g, '&#039;');
   }
 
-  // Filter pills click
   filterPills.forEach(pill => {
     pill.addEventListener('click', () => {
       filterPills.forEach(p => p.classList.remove('active'));
@@ -344,33 +557,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Clear logs
   btnClearLogs.addEventListener('click', async () => {
     await chrome.runtime.sendMessage({ action: 'CLEAR_LOGS' });
     cachedLogs = [];
     renderLogs();
   });
 
-  // Copy logs
   btnCopyLogs.addEventListener('click', async () => {
     if (cachedLogs.length === 0) return;
     const text = cachedLogs.map(l => `[${l.time}] [${l.tag}] ${l.message}`).join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      const originalText = btnCopyLogs.textContent;
-      btnCopyLogs.textContent = '✅ Đã chép!';
-      setTimeout(() => { btnCopyLogs.textContent = originalText; }, 1800);
+      const textEl = btnCopyLogs.querySelector('.btn-text') || btnCopyLogs;
+      const originalText = textEl.textContent;
+      textEl.textContent = t('toastCopied');
+      setTimeout(() => { textEl.textContent = originalText; }, 1800);
     } catch (_) {
       console.warn('Clipboard write failed');
     }
   });
 
-  // Listen for real-time logs from background (batched)
+  // Real-time logs from background (batched)
   chrome.runtime.onMessage.addListener((message) => {
     if (message.action === 'NEW_LOG_ENTRIES' && Array.isArray(message.logs)) {
       cachedLogs = message.logs.concat(cachedLogs);
       if (cachedLogs.length > MAX_LOGS) cachedLogs.length = MAX_LOGS;
-      renderLogs();
+      prependLogs(message.logs);
     }
 
     if (message.action === 'LOGS_CLEARED') {
@@ -386,6 +598,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Initial logs load
   loadLiveLogs();
 });

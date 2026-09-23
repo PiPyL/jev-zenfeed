@@ -31,6 +31,7 @@
     const changeListeners = [];
     const requestedKeys = new Set();
     const calls = [];                 // every EVALUATE_BATCH payload
+    const messages = [];              // every other runtime message
     let backendMode = 'ok';           // 'ok' | 'error'
 
     function backend(items) {
@@ -48,6 +49,7 @@
         id: 'harness',
         sendMessage(msg) {
           if (msg.action === 'EVALUATE_BATCH') return backend(msg.items);
+          messages.push(msg);
           return Promise.resolve();
         },
         onMessage: { addListener() {} }
@@ -104,6 +106,7 @@
 
   <!-- Real content scripts, manifest order -->
   <script src="../src/utils/settings-defaults.js"></script>
+  <script src="../src/utils/i18n.js"></script>
   <script src="../src/utils/fast-hash.js"></script>
   <script src="../src/content/fb-selectors.js"></script>
   <script src="../src/content/text-extractor.js"></script>
@@ -272,6 +275,42 @@
       lazy.querySelector('[data-ad-preview]').style.display = '';
       await sleep(2800);
       check('Bài hiện chữ muộn (không có node mới) vẫn tự được quét', status('L') === 'hidden', status('L'));
+
+      // --- Toolbar badge: hidden count reported to the worker ---
+      const tabStatus = messages.filter(m => m.action === 'TAB_STATUS');
+      check('Báo số bài đã ẩn cho badge', tabStatus.length > 0 && tabStatus[tabStatus.length - 1].hidden > 0,
+        JSON.stringify(tabStatus.slice(-1)));
+
+      // --- "See more": small growth keeps the decision, large growth re-checks silently ---
+      const g2msg = $('G2').querySelector('[data-ad-preview="message"] div');
+      const callsExpand = calls.length;
+      g2msg.textContent += ' thêm vài chữ nhỏ';
+      document.body.appendChild(document.createElement('div'));
+      await sleep(1800);
+      check('Text tăng ít (Xem thêm/alt) KHÔNG gửi lại API', calls.length === callsExpand && status('G2') === 'safe',
+        `${calls.length - callsExpand} lần gọi thêm`);
+      let blurredOnExpand = false;
+      const expObs = new MutationObserver(() => { if ($('G2').classList.contains('jev-analyzing')) blurredOnExpand = true; });
+      expObs.observe($('G2'), { attributes: true });
+      g2msg.textContent += ' Đoạn mở rộng rất dài của bài viết sau khi bấm Xem thêm, nội dung mới xuất hiện nhiều hơn hẳn so với bản rút gọn ban đầu.';
+      document.body.appendChild(document.createElement('div'));
+      await sleep(1800);
+      expObs.disconnect();
+      check('Text tăng nhiều được kiểm tra lại (không làm mờ)', calls.length === callsExpand + 1 && !blurredOnExpand,
+        `${calls.length - callsExpand} lần gọi, blur=${blurredOnExpand}`);
+
+      // --- "Ẩn nhầm" button ---
+      const safeBtn = bannerOf('G1') && bannerOf('G1').querySelector('.jev-btn-safe');
+      check('Banner có nút "Ẩn nhầm"', !!safeBtn);
+      const callsSafe = calls.length;
+      safeBtn && safeBtn.click();
+      await sleep(100);
+      const markMsg = messages.find(m => m.action === 'MARK_SAFE');
+      check('"Ẩn nhầm" hiện lại bài và báo cho worker', status('G1') === 'safe' && !bannerOf('G1') && !isCollapsed('G1') &&
+        markMsg && /^[0-9a-f]+$/.test(markMsg.hash), JSON.stringify(markMsg));
+      document.body.appendChild(document.createElement('div'));
+      await sleep(1800);
+      check('Bài đã báo ẩn nhầm không bị ẩn lại / gửi lại', status('G1') === 'safe' && calls.length === callsSafe);
 
       results.done = true;
       const summary = document.createElement('div');

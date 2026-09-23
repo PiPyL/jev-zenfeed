@@ -1,0 +1,81 @@
+---
+// AncSwitch.astro: Tactile Neumorphic Switch for ANC toggle
+---
+
+<div class="flex items-center gap-4">
+  <div class="text-right">
+    <div class="text-xs font-semibold uppercase tracking-wider text-[#5A6A7D]">Chế Độ Lọc</div>
+    <div id="anc-status-label" class="text-sm font-bold text-[#E58C8A] transition-colors">ANC ĐANG TẮT</div>
+  </div>
+
+  <button
+    id="anc-toggle-rocker"
+    type="button"
+    class="relative w-28 h-12 neumorph-inset rounded-full p-1.5 flex items-center transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7FA894]"
+    aria-pressed="false"
+    aria-label="Chuyển đổi chế độ lọc chống ồn thị giác ANC"
+  >
+    <!-- Label on left when knob is on right -->
+    <span id="anc-off-label" class="absolute left-3.5 text-[11px] font-bold text-[#5A6A7D] select-none pointer-events-none opacity-0 transition-opacity duration-300">OFF</span>
+
+    <!-- Sliding Knob -->
+    <div
+      id="anc-knob"
+      class="w-9 h-9 rounded-full bg-[#EBF0F6] neumorph-card flex items-center justify-center transition-transform duration-300 ease-out z-10"
+      style="transform: translateX(0px);"
+    >
+      <div id="anc-knob-indicator" class="w-3.5 h-3.5 rounded-full bg-[#E58C8A] transition-colors duration-300 shadow-sm"></div>
+    </div>
+
+    <!-- Label on right when knob is on left -->
+    <span id="anc-on-label" class="absolute right-3.5 text-[11px] font-bold text-[#436A57] select-none pointer-events-none opacity-100 transition-opacity duration-300">ON</span>
+  </button>
+</div>
+
+<script>
+  import { soundSynth } from '../../lib/audio/sound-synthesizer';
+
+  const toggleBtn = document.getElementById('anc-toggle-rocker');
+  const knob = document.getElementById('anc-knob');
+  const indicator = document.getElementById('anc-knob-indicator');
+  const statusLabel = document.getElementById('anc-status-label');
+  const offLabel = document.getElementById('anc-off-label');
+  const onLabel = document.getElementById('anc-on-label');
+
+  let isOn = false;
+
+  toggleBtn?.addEventListener('click', () => {
+    isOn = !isOn;
+    toggleBtn.setAttribute('aria-pressed', String(isOn));
+
+    if (isOn) {
+      if (knob) knob.style.transform = 'translateX(64px)';
+      indicator?.classList.remove('bg-[#E58C8A]');
+      indicator?.classList.add('bg-[#7FA894]', 'ring-4', 'ring-[#7FA894]/20');
+      if (offLabel) offLabel.style.opacity = '1';
+      if (onLabel) onLabel.style.opacity = '0';
+      if (statusLabel) {
+        statusLabel.textContent = 'ANC BẬT - TĨNH TÂM';
+        statusLabel.classList.remove('text-[#E58C8A]');
+        statusLabel.classList.add('text-[#436A57]');
+      }
+      soundSynth.playZenChime();
+      soundSynth.playAncWhoosh();
+    } else {
+      if (knob) knob.style.transform = 'translateX(0px)';
+      indicator?.classList.add('bg-[#E58C8A]');
+      indicator?.classList.remove('bg-[#7FA894]', 'ring-4', 'ring-[#7FA894]/20');
+      if (offLabel) offLabel.style.opacity = '0';
+      if (onLabel) onLabel.style.opacity = '1';
+      if (statusLabel) {
+        statusLabel.textContent = 'ANC ĐANG TẮT';
+        statusLabel.classList.add('text-[#E58C8A]');
+        statusLabel.classList.remove('text-[#436A57]');
+      }
+      soundSynth.playTactileClick();
+    }
+
+    // Dispatch global custom event for simulator
+    window.dispatchEvent(new CustomEvent('zenfeed:anc-toggle', { detail: { active: isOn } }));
+  });
+</script>

@@ -95,8 +95,14 @@ window.JevFB = window.JevFB || {};
 
     document.querySelectorAll(ANCHOR_SELECTOR).forEach(anchor => {
       if (anchor.closest('.jev-ui') || isInComment(anchor)) return;
-      // Already inside a resolved card (e.g. its message block) — skip the walk
-      for (const c of found) if (c.contains(anchor)) return;
+      if (!cardCache.has(anchor)) {
+        // New anchor already inside a resolved card (e.g. its message block):
+        // adopt that card instead of walking the DOM, and remember it.
+        for (const c of found) {
+          if (c.contains(anchor)) { cardCache.set(anchor, c); return; }
+        }
+      }
+      // Set de-duplicates; cardFor is a cached lookup after the first scan.
       found.add(cardFor(anchor));
     });
 
@@ -107,9 +113,14 @@ window.JevFB = window.JevFB || {};
       if (container && container !== document.body) found.add(container);
     });
 
-    // Drop containers nested in another one (never double-process a post)
-    const all = [...found];
-    return all.filter(c => !all.some(o => o !== c && o.contains(c)));
+    // Drop containers nested in another one (never double-process a post).
+    // Ancestor walk + Set lookup: O(n · depth) instead of O(n²) contains().
+    return [...found].filter(c => {
+      for (let p = c.parentElement; p; p = p.parentElement) {
+        if (found.has(p)) return false;
+      }
+      return true;
+    });
   };
 
   /**

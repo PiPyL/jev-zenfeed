@@ -1,0 +1,63 @@
+---
+// JSON-LD Schema for ZenFeed Digital Wellness Landing Page
+const schemaData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://zenfeed.app/#software",
+      "name": "ZenFeed",
+      "applicationCategory": "HealthApplication, BrowserExtension",
+      "operatingSystem": "Chrome, Edge, Brave, Chromium-based browsers",
+      "description": "Active Noise Cancellation for social media feeds. A digital wellness extension filtering rage-bait, toxic content, and doomscrolling triggers for mental peace.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://zenfeed.app/#website",
+      "url": "https://zenfeed.app",
+      "name": "ZenFeed - Chống Ồn Thị Giác & Sức Khỏe Tinh Thần",
+      "publisher": {
+        "@type": "Organization",
+        "name": "ZenFeed Digital Sanctuary",
+        "url": "https://zenfeed.app"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://zenfeed.app/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Cài tiện ích này có sợ bị Facebook khóa nick không?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "100% an toàn tài khoản. ZenFeed hoạt động độc lập ngay trên trình duyệt máy tính của bạn như một lớp kính lọc thị giác (DOM visual filter). Tiện ích hoàn toàn không gửi request giả lập, không tự ý thả like/share/comment và không vi phạm điều khoản dịch vụ (TOS) của Meta."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "ZenFeed có đọc trộm tin nhắn Messenger hay mật khẩu của tôi không?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Tuyệt đối không. Tiện ích chỉ trích xuất phần văn bản của các bài đăng công khai đang hiển thị trên News Feed để gửi đi phân loại. ZenFeed hoàn toàn bỏ qua tin nhắn riêng tư, hộp chat Messenger, thông tin đăng nhập và các bình luận cá nhân."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Dữ liệu được xử lý thế nào và chi phí ra sao (Mô hình BYOK)?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "ZenFeed là tiện ích mã nguồn mở và miễn phí sử dụng mô hình BYOK (Bring Your Own Key). Trình duyệt của bạn kết nối trực tiếp với API TypeSafe Jev siêu rẻ (chỉ $0.042 cho 1 triệu tokens, lướt Facebook cả tháng chỉ tốn chưa tới 1.000 VNĐ). Không có bất kỳ máy chủ trung gian nào của ZenFeed lưu trữ hay theo dõi hành vi của bạn."
+          }
+        }
+      ]
+    }
+  ]
+};
+---
+<script type="application/ld+json" set:html={JSON.stringify(schemaData)} />

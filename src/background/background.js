@@ -1,77 +1,102 @@
 /**
  * Jev AI Filter - Background Service Worker (Manifest V3)
- * Handles Jev batch requests, decision caching (LRU, persisted),
- * request de-duplication, statistics and centralized activity logging.
+ * Handles Jev batch requests, decision caching (IndexedDB LRU),
+ * request de-duplication, statistics, the toolbar badge and centralized
+ * activity logging.
  */
 
 import { evaluateWithJev, testApiKey } from './jev-client.js';
+import * as decisionCache from './decision-cache.js';
 import { addLog, getLogs, clearLogs } from '../utils/logger.js';
 import '../utils/fast-hash.js'; // F12: side-effect import registers self.__jevFastHash
 import '../utils/settings-defaults.js'; // F14: side-effect import registers self.__jevDefaults
+import '../utils/i18n.js'; // F18: side-effect import registers self.__jevI18n
 
 const simpleHash = self.__jevFastHash;
-const { DEFAULT_SETTINGS } = self.__jevDefaults;
+const { DEFAULT_SETTINGS, criteriaTopics, criteriaFingerprint } = self.__jevDefaults;
+const { t: i18nT } = self.__jevI18n;
+
+// One-time cleanup: the cache and logs used to live in storage.local, where
+// every write was broadcast to all Facebook tabs.
+chrome.storage.local.remove(['cachedDecisions', 'jevLogs']).catch(() => {});
 
 // ==================== SETTINGS (in-memory mirror) ====================
 // Read once, then kept fresh via storage.onChanged — no storage I/O per batch.
 
 let settings = { ...DEFAULT_SETTINGS };
-const settingsReady = chrome.storage.local.get(DEFAULT_SETTINGS).then((s) => { settings = s; });
+const settingsReady = chrome.storage.local.get(DEFAULT_SETTINGS).then((s) => {
+  settings = s;
+  updateHealth();
+});
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
+  let changed = false;
   for (const key of Object.keys(DEFAULT_SETTINGS)) {
     if (key in changes) {
       settings[key] = changes[key].newValue ?? DEFAULT_SETTINGS[key];
+      changed = true;
     }
   }
+  if (!changed) return;
+  if ('apiKey' in changes || 'apiUrl' in changes) apiFailing = false; // new endpoint: give it a chance
+  updateHealth();
 });
 
-// ==================== DECISION CACHE (LRU) ====================
-// Stores RAW { violation, confidence, reason } per `${contentHash}_${criteriaHash}`;
-// threshold gating is applied at read time (F3). Map insertion order = recency.
+const hasKey = () => !!(settings.apiKey && settings.apiKey.trim());
+const hasCriteria = () => criteriaTopics(settings.filterCriteria).length > 0;
 
-const decisionCache = new Map();
-const MAX_CACHE_SIZE = 3000;
+// ==================== TOOLBAR BADGE ====================
+// Per tab: number of posts hidden. Globally: OFF / "!" when the filter cannot
+// work (no key or criteria, API failing) so the user notices without opening
+// the popup.
 
-// Every cache access awaits this, so entries written after wake-up can never be
-// overwritten/evicted by the late-arriving persisted snapshot.
-const cacheReady = chrome.storage.local.get('cachedDecisions').then((data) => {
-  const stored = data.cachedDecisions || {};
-  for (const [k, v] of Object.entries(stored)) decisionCache.set(k, v);
-  while (decisionCache.size > MAX_CACHE_SIZE) {
-    decisionCache.delete(decisionCache.keys().next().value);
-  }
-}).catch(console.error);
+/** @type {'ok'|'off'|'setup'|'error'} */
+let health = 'ok';
+let apiFailing = false;
+const tabHidden = new Map(); // tabId -> hidden post count
 
-function cacheGet(key) {
-  const value = decisionCache.get(key);
-  if (value !== undefined) {
-    // Touch: move to most-recent position
-    decisionCache.delete(key);
-    decisionCache.set(key, value);
-  }
-  return value;
+const BADGE_KEYS = {
+  off: { color: '#8a8d91', titleKey: 'badgeOffTitle' },
+  setup: { color: '#e41e3f', titleKey: 'badgeSetupTitle' },
+  error: { color: '#f59e0b', titleKey: 'badgeErrorTitle' }
+};
+
+function badgeFor(tabId) {
+  const lang = settings.language || 'en';
+  const known = BADGE_KEYS[health];
+  if (known) return { text: health === 'off' ? 'OFF' : '!', color: known.color, title: i18nT(lang, known.titleKey) };
+  const n = tabId == null ? 0 : (tabHidden.get(tabId) || 0);
+  return {
+    text: n > 0 ? (n > 999 ? '999+' : String(n)) : '',
+    color: '#1877f2',
+    title: n > 0 ? i18nT(lang, 'badgeHiddenTitle', { n }) : i18nT(lang, 'badgeFilteringTitle')
+  };
 }
 
-function cacheSet(key, value) {
-  decisionCache.delete(key);
-  decisionCache.set(key, value);
-  while (decisionCache.size > MAX_CACHE_SIZE) {
-    decisionCache.delete(decisionCache.keys().next().value);
-  }
-  persistCache();
+function renderBadge(tabId) {
+  const action = chrome.action;
+  if (!action) return;
+  const b = badgeFor(tabId);
+  const target = tabId == null ? {} : { tabId };
+  const ignore = () => {}; // tab may have closed meanwhile
+  action.setBadgeText({ ...target, text: b.text }).catch(ignore);
+  action.setBadgeBackgroundColor({ ...target, color: b.color }).catch(ignore);
+  action.setTitle({ ...target, title: b.title }).catch(ignore);
 }
 
-// Save cache to storage — throttled to at most 1 write per 2s (F15)
-let persistTimer = null;
-function persistCache() {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    chrome.storage.local.set({ cachedDecisions: Object.fromEntries(decisionCache) });
-  }, 2000);
+function updateHealth() {
+  const next = !settings.extensionEnabled ? 'off'
+    : (!hasKey() || !hasCriteria()) ? 'setup'
+    : apiFailing ? 'error' : 'ok';
+  if (next === health) return;
+  health = next;
+  renderBadge();
+  tabHidden.forEach((_, tabId) => renderBadge(tabId));
 }
+
+renderBadge();
+chrome.tabs?.onRemoved?.addListener((tabId) => tabHidden.delete(tabId));
 
 // ==================== STATISTICS ====================
 // Deltas accumulate in memory and are flushed through a serialized chain, so
@@ -142,11 +167,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.action) {
     case 'TEST_API_KEY':
-      testApiKey(message.apiKey, message.apiUrl).then((res) => {
+      testApiKey(message.apiKey, message.apiUrl, message.lang || settings.language).then((res) => {
         addLog(res.success
           ? { level: 'success', tag: 'KEY', message: `Xác thực API Key thành công với ${message.apiUrl || 'TypeSafe AI'}` }
           : { level: 'error', tag: 'KEY', message: `Xác thực thất bại: ${res.error || 'Không hợp lệ'}` });
-        if (res.success) apiCooldownUntil = 0; // connectivity confirmed — allow immediate retries
+        if (res.success) {
+          apiCooldownUntil = 0; // connectivity confirmed — allow immediate retries
+          apiFailing = false;
+          updateHealth();
+        }
         sendResponse(res);
       });
       return true;
@@ -158,14 +187,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return true;
 
+    case 'MARK_SAFE':
+      markSafe(message, sender).then(sendResponse, () => sendResponse({ success: false }));
+      return true;
+
+    case 'TAB_STATUS':
+      if (sender.tab && Number.isInteger(message.hidden) && message.hidden >= 0) {
+        tabHidden.set(sender.tab.id, message.hidden);
+        renderBadge(sender.tab.id);
+      }
+      return false;
+
     case 'CLEAR_CACHE':
-      cacheReady.then(() => {
-        decisionCache.clear();
-        chrome.storage.local.remove('cachedDecisions', () => {
-          addLog({ level: 'info', tag: 'CACHE', message: 'Đã xóa toàn bộ bộ nhớ đệm (Cache)!' });
-          sendResponse({ success: true });
-        });
-      });
+      decisionCache.clear().then(() => {
+        addLog({ level: 'info', tag: 'CACHE', message: 'Đã xóa toàn bộ bộ nhớ đệm (Cache)!' });
+        sendResponse({ success: true });
+      }, () => sendResponse({ success: false }));
       return true;
 
     case 'GET_LOGS':
@@ -181,6 +218,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
   }
 });
+
+// ==================== USER FEEDBACK ====================
+
+const criteriaKeyHash = () => simpleHash(criteriaFingerprint(settings.filterCriteria));
+
+/**
+ * "Ẩn nhầm": the user says this content must not be hidden under the current
+ * criteria. Stored as a user override in the decision cache — never re-sent
+ * to the API, applies to every copy of the same content in every tab.
+ */
+async function markSafe(message, sender) {
+  const hash = typeof message.hash === 'string' ? message.hash : '';
+  if (!/^[0-9a-f]{1,16}$/.test(hash)) return { success: false };
+  await settingsReady;
+  decisionCache.set(`${hash}_${criteriaKeyHash()}`, { violation: false, confidence: 0, user: true });
+  const author = typeof message.author === 'string' ? message.author.slice(0, 80) : 'Người dùng';
+  addLog({ level: 'info', tag: 'PHẢN HỒI', message: `Đã đánh dấu "ẩn nhầm" bài của "${author}" — sẽ không ẩn lại.` });
+  if (sender.tab) recordStats(0, -1, 0);
+  return { success: true };
+}
 
 // ==================== BATCH EVALUATION ====================
 
@@ -206,14 +263,14 @@ const author = (item) => item.author || 'Người dùng';
  */
 async function handleBatchEvaluation(items) {
   if (!Array.isArray(items) || items.length === 0) return [];
-  await Promise.all([settingsReady, cacheReady]);
+  await settingsReady;
   const config = settings;
 
   const skippedAll = () => items.map(it => ({ id: it.id, shouldHide: false, confidence: 0, skipped: true }));
 
   if (!config.extensionEnabled) return skippedAll();
 
-  if (!config.apiKey || !config.apiKey.trim()) {
+  if (!hasKey()) {
     warnThrottled('no-key', {
       level: 'warn',
       tag: 'WARN',
@@ -222,7 +279,7 @@ async function handleBatchEvaluation(items) {
     return skippedAll();
   }
 
-  if (!config.filterCriteria || !config.filterCriteria.trim()) {
+  if (!hasCriteria()) {
     warnThrottled('no-criteria', {
       level: 'warn',
       tag: 'WARN',
@@ -232,23 +289,29 @@ async function handleBatchEvaluation(items) {
   }
 
   const threshold = config.confidenceThreshold;
-  const criteriaHash = simpleHash(config.filterCriteria);
+  const criteriaHash = criteriaKeyHash();
   const keyOf = (item) => `${item.hash}_${criteriaHash}`;
 
   /** @type {Map<string, Promise<object>>} cacheKey -> promise of RAW decision */
   const pendingByKey = new Map();
-  /** @type {Map<string, object>} cacheKey -> representative item to send */
-  const toFetch = new Map();
-  let cacheHits = 0;
-
+  /** @type {Map<string, object>} cacheKey -> representative item */
+  const reps = new Map();
   for (const item of items) {
     const key = keyOf(item);
-    if (pendingByKey.has(key) || toFetch.has(key)) continue; // duplicate content in this batch
+    if (!reps.has(key)) reps.set(key, item); // duplicate content in this batch
+  }
 
-    const cached = cacheGet(key);
-    if (cached) {
+  // One cache transaction for the whole batch
+  const cached = await decisionCache.getMany([...reps.keys()].filter(k => !inflight.has(k)));
+  let cacheHits = 0;
+  /** @type {Map<string, object>} cacheKey -> item to send */
+  const toFetch = new Map();
+
+  for (const [key, item] of reps) {
+    const hit = cached.get(key);
+    if (hit) {
       cacheHits++;
-      pendingByKey.set(key, Promise.resolve({ ...cached, fromCache: true }));
+      pendingByKey.set(key, Promise.resolve({ ...hit, fromCache: true }));
     } else if (inflight.has(key)) {
       pendingByKey.set(key, inflight.get(key));
     } else {
@@ -257,19 +320,15 @@ async function handleBatchEvaluation(items) {
   }
 
   if (toFetch.size > 0) {
-    const reps = [...toFetch.values()];
-    let apiPromise;
-
-    if (Date.now() < apiCooldownUntil) {
-      apiPromise = Promise.resolve(reps.map(it => ({ id: it.id, error: true })));
-    } else {
-      addLog({
-        level: 'ai',
-        tag: 'JEV-AI',
-        message: `Đang gửi ${reps.length} bài viết đến Jev System One (${config.apiUrl})...`
-      });
-      apiPromise = evaluateWithJev(config.apiKey, config.apiUrl, reps, config.filterCriteria, threshold);
-    }
+    const sending = [...toFetch.values()];
+    const startedAt = Date.now();
+    const apiPromise = Date.now() < apiCooldownUntil
+      ? Promise.resolve(sending.map(it => ({ id: it.id, error: true })))
+      : evaluateWithJev(config.apiKey, config.apiUrl, sending, config.filterCriteria, threshold)
+        .then((results) => {
+          logApiBatch(results, sending, threshold, Date.now() - startedAt);
+          return results;
+        });
 
     const byId = apiPromise.then((results) => new Map(results.map(r => [r.id, r])));
 
@@ -278,8 +337,9 @@ async function handleBatchEvaluation(items) {
         const res = map.get(rep.id) || { error: true };
         if (res.error) return { error: true };
         // F1: only real decisions are cached; F3: cache RAW values
-        const raw = { violation: res.violation === true, confidence: res.confidence, reason: res.reason };
-        cacheSet(key, raw);
+        const raw = { violation: res.violation === true, confidence: res.confidence };
+        if (res.reason) raw.reason = res.reason;
+        decisionCache.set(key, raw);
         return raw;
       });
       inflight.set(key, p);
@@ -292,14 +352,15 @@ async function handleBatchEvaluation(items) {
   const results = await Promise.all(items.map(async (item) => {
     const raw = await pendingByKey.get(keyOf(item));
     if (raw.error) return { id: item.id, shouldHide: false, confidence: 0, error: true };
-    const shouldHide = raw.violation === true && raw.confidence >= threshold;
-    return {
+    const result = {
       id: item.id,
-      shouldHide,
+      shouldHide: raw.violation === true && raw.confidence >= threshold,
       confidence: raw.confidence,
-      reason: raw.reason,
       fromCache: raw.fromCache === true
     };
+    if (raw.reason) result.reason = raw.reason;
+    if (raw.user) result.user = true;
+    return result;
   }));
 
   // Logging never blocks the response
@@ -313,21 +374,41 @@ async function handleBatchEvaluation(items) {
         message: `⚠️ Không đánh giá được ${errorCount} bài viết (lỗi kết nối/API) — KHÔNG lưu cache, sẽ thử lại sau ${API_COOLDOWN_MS / 1000}s.`
       });
     }
+    if (!apiFailing) { apiFailing = true; updateHealth(); }
   }
-  results.forEach((res, i) => {
-    if (res.error) return;
-    const item = items[i];
-    if (res.shouldHide) {
-      addLog(res.fromCache
-        ? { level: 'success', tag: 'CACHE', message: `⚡ [Cache Hit] Đã ẩn bài của "${author(item)}": Khớp tiêu chí (${res.confidence}%)` }
-        : { level: 'success', tag: 'ẨN BÀI', message: `🛡️ [ĐÃ ẨN] "${author(item)}": ${res.reason || 'Trùng tiêu chí'} (Độ tin cậy ${res.confidence}%)` });
-    } else if (!res.fromCache) {
-      addLog({ level: 'info', tag: 'AN TOÀN', message: `Bài viết của "${author(item)}": An toàn (${res.confidence}% vi phạm)` });
-    }
-  });
 
   const decided = results.filter(r => !r.error);
+  const cacheHidden = decided.filter(r => r.shouldHide && r.fromCache).length;
+  if (cacheHidden > 0) {
+    addLog({ level: 'success', tag: 'CACHE', message: `⚡ Ẩn ${cacheHidden} bài từ cache (0 token)` });
+  }
   recordStats(decided.length, decided.filter(r => r.shouldHide).length, cacheHits);
 
   return results;
+}
+
+/**
+ * One log line per API call (instead of one per post): the popup log stays
+ * readable and the logger writes far less.
+ */
+function logApiBatch(results, sent, threshold, ms) {
+  const byId = new Map(sent.map(it => [it.id, it]));
+  const ok = results.filter(r => !r.error);
+  if (ok.length > 0 && apiFailing) { apiFailing = false; updateHealth(); }
+
+  const hidden = ok.filter(r => r.violation && r.confidence >= threshold);
+  hidden.forEach((r) => {
+    addLog({
+      level: 'success',
+      tag: 'ẨN BÀI',
+      message: `🛡️ [ĐÃ ẨN] "${author(byId.get(r.id) || {})}"${r.reason ? `: ${r.reason}` : ''} (Độ tin cậy ${r.confidence}%)`
+    });
+  });
+  if (ok.length > 0) {
+    addLog({
+      level: 'ai',
+      tag: 'JEV-AI',
+      message: `Jev đã duyệt ${ok.length} bài trong ${ms}ms: ${hidden.length} ẩn, ${ok.length - hidden.length} an toàn`
+    });
+  }
 }

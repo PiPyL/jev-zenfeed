@@ -1,11 +1,28 @@
 /**
  * Centralized Logger for Jev AI Facebook Filter
- * Manages ring-buffer activity logs stored in chrome.storage.local
- * and broadcasts real-time log events to popup.
+ * Manages ring-buffer activity logs and broadcasts real-time log events to popup.
+ *
+ * Logs live in chrome.storage.session (survives the worker sleeping, cleared
+ * when the browser restarts). Unlike storage.local, session writes are NOT
+ * delivered to content scripts' storage.onChanged, so logging no longer costs
+ * anything inside open Facebook tabs. The worker keeps an in-memory copy, so
+ * each flush is a single write (no read-modify-write).
  */
 
 const MAX_LOGS = 150;
 const STORAGE_KEY = 'jevLogs';
+
+const logArea = () => chrome.storage.session || chrome.storage.local;
+let memLogs = null; // lazily loaded mirror of the stored logs
+
+async function loadLogs() {
+  if (!memLogs) {
+    const data = await logArea().get(STORAGE_KEY);
+    const stored = Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
+    if (!memLogs) memLogs = stored;
+  }
+  return memLogs;
+}
 
 /**
  * Format date to HH:MM:SS
@@ -76,11 +93,10 @@ async function flushLogs(batch) {
   // Newest first, matching the popup's display order
   const newItems = batch.map(b => b.logItem).reverse();
   try {
-    const data = await chrome.storage.local.get(STORAGE_KEY);
-    const logs = Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
-    const merged = newItems.concat(logs);
+    const merged = newItems.concat(await loadLogs());
     if (merged.length > MAX_LOGS) merged.length = MAX_LOGS;
-    await chrome.storage.local.set({ [STORAGE_KEY]: merged });
+    memLogs = merged;
+    await logArea().set({ [STORAGE_KEY]: merged });
 
     // Notify any open extension pages (e.g. Popup) in one message
     chrome.runtime.sendMessage({ action: 'NEW_LOG_ENTRIES', logs: newItems }).catch(() => {
@@ -98,8 +114,8 @@ async function flushLogs(batch) {
  */
 export async function getLogs() {
   try {
-    const data = await chrome.storage.local.get(STORAGE_KEY);
-    return Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
+    await flushChain; // include entries already on their way to storage
+    return (await loadLogs()).slice();
   } catch (err) {
     console.error('Failed to read logs:', err);
     return [];
@@ -112,7 +128,8 @@ export async function getLogs() {
  */
 export async function clearLogs() {
   try {
-    await chrome.storage.local.remove(STORAGE_KEY);
+    memLogs = [];
+    await logArea().remove(STORAGE_KEY);
     // Broadcast clear event
     chrome.runtime.sendMessage({ action: 'LOGS_CLEARED' }).catch(() => {});
     return true;

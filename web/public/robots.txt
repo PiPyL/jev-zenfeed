@@ -1,0 +1,5 @@
+# Robots.txt for ZenFeed Digital Wellness
+User-agent: *
+Allow: /
+
+Sitemap: https://zenfeed.app/sitemap-index.xml

@@ -1,0 +1,207 @@
+:root {
+  /* Neumorphic Clay Base Palette */
+  --clay-base: #EBF0F6;
+  --clay-surface: #E4EAF2;
+  --clay-elevated: #F2F6FA;
+  --clay-border: rgba(255, 255, 255, 0.7);
+  --clay-border-subtle: rgba(166, 180, 200, 0.25);
+
+  /* Calming Pastels */
+  --sage-primary: #7FA894;
+  --sage-soft: #D5E5DC;
+  --sage-deep: #436A57;
+  --sky-calm: #9BB7D4;
+  --sky-mist: #E5EDF6;
+  --lavender-soft: #C7CEEA;
+  --warm-sand: #EAD6CD;
+  --warm-blush: #F7ECE8;
+  --rose-alert: #E58C8A;
+  --rose-soft: #F9E7E7;
+
+  /* Typography Colors (Calibrated for strict WCAG AAA / AA+ readability) */
+  --text-primary: #232D3F;
+  --text-secondary: #526071;
+  --text-muted: #5A6A7D;
+
+  /* Dual Shadow Definitions (Light Northwest #FFF, Shadow Southeast #A6B4C8) */
+  --shadow-light: rgba(255, 255, 255, 0.95);
+  --shadow-dark: rgba(166, 180, 200, 0.65);
+  --shadow-dark-intense: rgba(150, 166, 188, 0.75);
+
+  /* Standard Elevations */
+  --nm-convex: 8px 8px 20px var(--shadow-dark), -8px -8px 20px var(--shadow-light);
+  --nm-convex-subtle: 5px 5px 12px var(--shadow-dark), -5px -5px 12px var(--shadow-light);
+  --nm-convex-float: 14px 14px 28px rgba(166, 180, 200, 0.55), -14px -14px 28px rgba(255, 255, 255, 0.95);
+  --nm-concave: inset 5px 5px 10px var(--shadow-dark), inset -5px -5px 10px var(--shadow-light);
+  --nm-concave-subtle: inset 3px 3px 7px var(--shadow-dark), inset -3px -3px 7px var(--shadow-light);
+  --nm-pill: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+  --nm-pill-pressed: inset 3px 3px 6px var(--shadow-dark), inset -3px -3px 6px var(--shadow-light);
+}
+
+/* Base Body Styles */
+body {
+  background-color: var(--clay-base);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Neumorphic UI Classes */
+.neumorph-card {
+  background: var(--clay-base);
+  box-shadow: var(--nm-convex);
+  border: 1px solid var(--clay-border);
+  border-radius: 20px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neumorph-card-subtle {
+  background: var(--clay-base);
+  box-shadow: var(--nm-convex-subtle);
+  border: 1px solid var(--clay-border);
+  border-radius: 14px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neumorph-card-elevated {
+  background: var(--clay-base);
+  box-shadow: var(--nm-convex-float);
+  border: 1px solid var(--clay-border);
+  border-radius: 24px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neumorph-inset {
+  background: var(--clay-surface);
+  box-shadow: var(--nm-concave);
+  border: 1px solid var(--clay-border-subtle);
+  border-radius: 16px;
+}
+
+.neumorph-inset-subtle {
+  background: var(--clay-surface);
+  box-shadow: var(--nm-concave-subtle);
+  border: 1px solid var(--clay-border-subtle);
+  border-radius: 12px;
+}
+
+.neumorph-btn {
+  background: var(--clay-base);
+  box-shadow: var(--nm-convex-subtle);
+  border: 1px solid var(--clay-border);
+  border-radius: 14px;
+  color: var(--text-primary);
+  font-weight: 600;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.neumorph-btn:hover {
+  box-shadow: 7px 7px 16px var(--shadow-dark), -7px -7px 16px var(--shadow-light);
+  transform: translateY(-1px);
+}
+
+.neumorph-btn:active,
+.neumorph-btn.is-active {
+  box-shadow: var(--nm-concave-subtle);
+  transform: translateY(1px);
+}
+
+.neumorph-btn-sage {
+  background: linear-gradient(135deg, #87AF9C, #739E8A);
+  box-shadow: 6px 6px 16px rgba(115, 158, 138, 0.45), -6px -6px 16px rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #FFFFFF;
+  font-weight: 600;
+  border-radius: 14px;
+  transition: all 0.2s ease;
+}
+
+.neumorph-btn-sage:hover {
+  background: linear-gradient(135deg, #8EBAA5, #7AA792);
+  box-shadow: 8px 8px 20px rgba(115, 158, 138, 0.55), -8px -8px 20px rgba(255, 255, 255, 0.95);
+  transform: translateY(-1px);
+}
+
+.neumorph-btn-sage:active {
+  box-shadow: inset 4px 4px 8px rgba(77, 115, 98, 0.6), inset -4px -4px 8px rgba(255, 255, 255, 0.4);
+  transform: translateY(1px);
+}
+
+.neumorph-pill {
+  background: var(--clay-base);
+  box-shadow: var(--nm-pill);
+  border: 1px solid var(--clay-border);
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+.neumorph-pill-active {
+  background: var(--clay-surface);
+  box-shadow: var(--nm-pill-pressed);
+  border: 1px solid var(--clay-border-subtle);
+}
+
+.neumorph-circle {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--clay-base);
+  box-shadow: var(--nm-convex-subtle);
+  border: 1px solid var(--clay-border);
+  transition: all 0.25s ease;
+}
+
+.neumorph-circle:active {
+  box-shadow: var(--nm-concave-subtle);
+}
+
+/* Custom Neumorphic Range Slider */
+.neumorph-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--clay-surface);
+  box-shadow: var(--nm-concave-subtle);
+  outline: none;
+}
+
+.neumorph-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--clay-base);
+  border: 2.5px solid var(--sage-primary);
+  box-shadow: 3px 3px 8px var(--shadow-dark), -3px -3px 8px var(--shadow-light);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.neumorph-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+  box-shadow: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+}
+
+.neumorph-slider::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+  box-shadow: inset 2px 2px 4px var(--shadow-dark), inset -2px -2px 4px var(--shadow-light);
+}
+
+.neumorph-slider::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--clay-base);
+  border: 2.5px solid var(--sage-primary);
+  box-shadow: 3px 3px 8px var(--shadow-dark), -3px -3px 8px var(--shadow-light);
+  cursor: pointer;
+}

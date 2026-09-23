@@ -1,22 +1,26 @@
 {
-  "name": "jev-facebook-filter",
+  "name": "zenfeed",
   "version": "1.0.0",
-  "description": "Chrome Extension ẩn bài viết Facebook theo tiêu chí người dùng với model Jev (TypeSafe AI)",
+  "description": "Active Noise Cancellation for your eyes. (Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.) Chrome Extension lọc Facebook bằng AI.",
   "type": "module",
   "scripts": {
     "test": "node test/test-jev-mock.js",
     "mock-server": "node test/mock-jev-server.js",
     "lint": "for f in $(find src test -name '*.js'); do node --check \"$f\" || exit 1; done && echo 'Lint (syntax check): all files OK.'",
-    "harness": "node test/static-server.js"
+    "harness": "node test/static-server.js",
+    "harness:headless": "node test/run-harness-headless.js"
   },
   "keywords": [
+    "zenfeed",
     "chrome-extension",
     "facebook",
+    "ai-filter",
     "jev",
     "typesafe-ai",
     "content-moderation",
-    "system-one",
-    "byok"
+    "noise-cancellation-for-eyes",
+    "byok",
+    "open-source"
   ],
   "author": "Antigravity AI",
   "license": "MIT"

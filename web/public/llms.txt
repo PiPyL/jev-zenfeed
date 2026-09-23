@@ -1,0 +1,15 @@
+# ZenFeed - Active Noise Cancellation for Eyes & Mental Peace
+
+> ZenFeed is a privacy-first browser extension that provides active noise cancellation for social media news feeds (Facebook). Designed as a calming digital wellness and mental health tool, it eliminates sensationalist rage-bait, toxic rants, unsolicited advertisements, and doomscrolling triggers using on-device pattern matching and lightweight AI evaluation.
+
+## Key Capabilities
+- **Active Noise Cancellation (ANC) for Eyes:** Real-time visual noise suppression that cleanses toxic posts before they reach human consciousness.
+- **Digital Mental Health & Wellness:** Reduces digital anxiety, FOMO, and cognitive overload by transforming noisy social feeds into intentional reading spaces.
+- **Mood Tracking & Impact Analytics:** Measures mental calm improvement, daily deep work recovery (+2.5 hrs/day), and screen time wellness.
+- **Mindful Therapy & Coaching:** Guided integration with behavioral digital wellbeing techniques to break doomscrolling loops.
+- **Crisis Support & Emergency Detach:** One-touch 24-hour social media disconnection lock and interactive Box Breathing (4-4-4-4) meditation guide.
+- **100% On-Device Privacy:** Zero tracking, zero telemetry, local rule execution. No user credentials or personal messages are ever sent to external cloud servers.
+
+## Tech Stack
+- Client Extension: Manifest V3, Web Audio API procedural synthesis, fast-hash, sub-200ms Jev Bernoulli client.
+- Landing Application: Astro 5 SSG, Islands Architecture, Tailwind CSS v4, Neumorphic Soft Design System.

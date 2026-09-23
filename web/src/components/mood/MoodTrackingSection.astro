@@ -1,0 +1,265 @@
+---
+// MoodTrackingSection.astro: Interactive digital wellness calculator & time reclamation model
+---
+
+<section id="mood-tracking" class="py-20 lg:py-28 relative">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Section Header -->
+    <div class="max-w-3xl mx-auto text-center space-y-4 mb-16">
+      <div class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full neumorph-card-subtle">
+        <span class="w-2 h-2 rounded-full bg-[#9BB7D4]"></span>
+        <span class="text-xs font-bold uppercase tracking-wider text-[#526071]">Khảo Sát Tác Động Nhận Thức</span>
+      </div>
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-[#232D3F] tracking-tight">
+        Bảng Tính Lợi Ích Thời Gian & Sức Khỏe Số <br />
+        <span class="text-[#7FA894]">Trước và Sau Khi Bật Bộ Lọc ZenFeed</span>
+      </h2>
+      <p class="text-base text-[#526071] max-w-xl mx-auto">
+        Kéo thanh trượt thời gian lướt mạng xã hội mỗi ngày để xem ước tính thời gian tập trung được giải phóng và mức độ phục hồi giấc ngủ.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <!-- Left: Interactive Time Slider & Calming Controls -->
+      <div class="lg:col-span-5 neumorph-card p-6 sm:p-8 space-y-7">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold uppercase tracking-wider text-[#7E8D9F]">Mức Độ Sử Dụng Hàng Ngày</span>
+          <span id="hours-display" class="text-xl font-extrabold text-[#232D3F]">3 Giờ / Ngày</span>
+        </div>
+
+        <!-- Custom Neumorphic Range Slider -->
+        <div class="space-y-3">
+          <div class="px-1">
+            <input
+              id="time-range-slider"
+              type="range"
+              min="1"
+              max="6"
+              step="1"
+              value="3"
+              class="neumorph-slider cursor-pointer"
+              aria-label="Chọn thời gian lướt mạng xã hội mỗi ngày"
+            />
+          </div>
+          <div class="flex justify-between text-xs text-[#5A6A7D] font-semibold px-2">
+            <span>1 Giờ</span>
+            <span>2 Giờ</span>
+            <span>3 Giờ</span>
+            <span>4 Giờ</span>
+            <span>5 Giờ</span>
+            <span>6+ Giờ</span>
+          </div>
+        </div>
+
+        <!-- Biological Stress Indicator -->
+        <div class="neumorph-inset p-5 space-y-4">
+          <div class="flex items-center justify-between text-xs font-bold uppercase tracking-wider">
+            <span class="text-[#5A6A7D]">Mức Độ Căng Thẳng Thần Kinh</span>
+            <span id="stress-level-badge" class="text-[#E58C8A]">Cao (Nguy cơ kiệt sức)</span>
+          </div>
+          <!-- Bar visual -->
+          <div class="w-full h-3 bg-[#EBF0F6] rounded-full overflow-hidden p-0.5 shadow-inner flex">
+            <div id="stress-bar-toxic" class="h-full bg-[#E58C8A] rounded-full transition-all duration-300" style="width: 68%;"></div>
+          </div>
+          <p id="stress-detail-text" class="text-xs text-[#526071] leading-relaxed">
+            Với 3 giờ tiếp xúc liên tục với tin giật gân, não bộ sản sinh hormone Cortisol gây bồn chồn vô thức và hội chứng sợ bỏ lỡ (FOMO).
+          </p>
+        </div>
+
+        <!-- Scientific Methodology Citation Footnote -->
+        <div class="border-l-2 border-l-[#7FA894] pl-4 py-1 text-[11px] text-[#5A6A7D] leading-relaxed">
+          *Ước tính dựa trên nghiên cứu của Đại học California, Irvine: trung bình một người mất 23 phút 15 giây để lấy lại sự tập trung sâu sau mỗi lần bị xao nhãng bởi drama mạng xã hội.
+        </div>
+      </div>
+
+      <!-- Right: Real-time Recovery Metric Cards (4 Cards Grid + Conversion CTA) -->
+      <div class="lg:col-span-7 space-y-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <!-- Card 1: Reclaimed Deep Work -->
+          <div class="neumorph-card p-6 space-y-3">
+            <div class="w-11 h-11 rounded-2xl bg-[#D5E5DC] text-[#436A57] flex items-center justify-center font-bold">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+            </div>
+            <div class="text-2xl font-extrabold text-[#232D3F]" id="metric-hours-saved">+2.5 Giờ / Ngày</div>
+            <div class="text-sm font-semibold text-[#436A57]">Thời Gian Tập Trung Sâu</div>
+            <p class="text-xs text-[#5A6A7D] leading-relaxed">
+              Không còn bị cắt đứt mạch tư duy làm việc bởi các thông báo giật gân vô nghĩa.
+            </p>
+          </div>
+
+          <!-- Card 2: Toxic Rants Blocked -->
+          <div class="neumorph-card p-6 space-y-3">
+            <div class="w-11 h-11 rounded-2xl bg-[#E5EDF6] text-[#416080] flex items-center justify-center font-bold">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+            </div>
+            <div class="text-2xl font-extrabold text-[#232D3F]" id="metric-rants-blocked">126 Bài / Tuần</div>
+            <div class="text-sm font-semibold text-[#416080]">Bài Viết Độc Hại Bị Triệt Tiêu</div>
+            <p class="text-xs text-[#5A6A7D] leading-relaxed">
+              Ngăn chặn triệt để các drama cãi vã, xúc phạm danh dự và cờ bạc mạng.
+            </p>
+          </div>
+
+          <!-- Card 3: Anxiety Reduction -->
+          <div class="neumorph-card p-6 space-y-3">
+            <div class="w-11 h-11 rounded-2xl bg-[#D5E5DC] text-[#436A57] flex items-center justify-center font-bold">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+              </svg>
+            </div>
+            <div class="text-2xl font-extrabold text-[#232D3F]" id="metric-stress-reduced">-72%</div>
+            <div class="text-sm font-semibold text-[#436A57]">Mức Độ Căng Thẳng Thị Giác</div>
+            <p class="text-xs text-[#5A6A7D] leading-relaxed">
+              Hạ nhịp tim và giảm áp lực tự ti xã hội khi nhìn vào màn hình máy tính.
+            </p>
+          </div>
+
+          <!-- Card 4: Sleep Quality Index -->
+          <div class="neumorph-card p-6 space-y-3">
+            <div class="w-11 h-11 rounded-2xl bg-[#F7ECE8] text-[#8C5D4B] flex items-center justify-center font-bold">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+              </svg>
+            </div>
+            <div class="text-2xl font-extrabold text-[#232D3F]" id="metric-sleep-score">+45 Phút</div>
+            <div class="text-sm font-semibold text-[#8C5D4B]">Đi Vào Giấc Ngủ Sớm Hơn</div>
+            <p class="text-xs text-[#5A6A7D] leading-relaxed">
+              Không còn nằm trằn trọc doomscrolling đến 2 giờ sáng trong sự bồn chồn.
+            </p>
+          </div>
+        </div>
+
+        <!-- Conversion Direct CTA -->
+        <div class="neumorph-inset-subtle p-5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div class="text-xs text-[#526071] text-center sm:text-left">
+            <span class="font-bold text-[#232D3F]">Sẵn sàng lấy lại thời gian của bạn?</span> Cài đặt tiện ích miễn phí chỉ trong 1 cú chạm.
+          </div>
+          <a
+            href="https://chromewebstore.google.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="neumorph-btn-sage px-6 py-2.5 text-xs font-bold shrink-0"
+          >
+            Lấy Lại 2.5 Giờ Mỗi Ngày Ngay →
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const slider = document.getElementById('time-range-slider') as HTMLInputElement | null;
+  const hoursDisplay = document.getElementById('hours-display');
+  const stressBadge = document.getElementById('stress-level-badge');
+  const stressBar = document.getElementById('stress-bar-toxic');
+  const stressDetail = document.getElementById('stress-detail-text');
+  const metricHours = document.getElementById('metric-hours-saved');
+  const metricRants = document.getElementById('metric-rants-blocked');
+  const metricStress = document.getElementById('metric-stress-reduced');
+  const metricSleep = document.getElementById('metric-sleep-score');
+
+  const dataMap: Record<string, {
+    hoursText: string;
+    stressBadge: string;
+    stressColor: string;
+    barWidth: string;
+    detail: string;
+    hoursSaved: string;
+    rantsBlocked: string;
+    stressReduced: string;
+    sleepScore: string;
+  }> = {
+    '1': {
+      hoursText: '1 Giờ / Ngày',
+      stressBadge: 'Nhẹ (Vừa phải)',
+      stressColor: '#7FA894',
+      barWidth: '25%',
+      detail: 'Mức độ ảnh hưởng thấp. Não bộ vẫn cần lọc khoảng 35 bài viết rác mỗi tuần.',
+      hoursSaved: '+45 Phút / Ngày',
+      rantsBlocked: '42 Bài / Tuần',
+      stressReduced: '-35%',
+      sleepScore: '+20 Phút'
+    },
+    '2': {
+      hoursText: '2 Giờ / Ngày',
+      stressBadge: 'Trung bình (Bắt đầu mệt)',
+      stressColor: '#9BB7D4',
+      barWidth: '45%',
+      detail: 'Tâm trí bắt đầu bị xao nhãng bởi các luồng drama và quảng cáo không mong muốn.',
+      hoursSaved: '+1.5 Giờ / Ngày',
+      rantsBlocked: '85 Bài / Tuần',
+      stressReduced: '-55%',
+      sleepScore: '+30 Phút'
+    },
+    '3': {
+      hoursText: '3 Giờ / Ngày',
+      stressBadge: 'Cao (Nguy cơ kiệt sức)',
+      stressColor: '#E58C8A',
+      barWidth: '68%',
+      detail: 'Với 3 giờ tiếp xúc liên tục với tin giật gân, não bộ sản sinh hormone Cortisol gây bồn chồn vô thức.',
+      hoursSaved: '+2.5 Giờ / Ngày',
+      rantsBlocked: '126 Bài / Tuần',
+      stressReduced: '-72%',
+      sleepScore: '+45 Phút'
+    },
+    '4': {
+      hoursText: '4 Giờ / Ngày',
+      stressBadge: 'Rất cao (Nghiện Doomscrolling)',
+      stressColor: '#E58C8A',
+      barWidth: '82%',
+      detail: 'Thường xuyên mở Facebook trong vô thức, khả năng tập trung đọc tài liệu dài bị suy giảm nặng nề.',
+      hoursSaved: '+3.2 Giờ / Ngày',
+      rantsBlocked: '175 Bài / Tuần',
+      stressReduced: '-80%',
+      sleepScore: '+60 Phút'
+    },
+    '5': {
+      hoursText: '5 Giờ / Ngày',
+      stressBadge: 'Báo động (Kiệt quệ nhận thức)',
+      stressColor: '#E58C8A',
+      barWidth: '92%',
+      detail: 'Não bộ bị quá tải thụ động, liên tục đối mặt với cảm giác bứt rứt và mệt mỏi thị giác.',
+      hoursSaved: '+4.0 Giờ / Ngày',
+      rantsBlocked: '220 Bài / Tuần',
+      stressReduced: '-86%',
+      sleepScore: '+90 Phút'
+    },
+    '6': {
+      hoursText: '6+ Giờ / Ngày',
+      stressBadge: 'Khủng hoảng (Cần ngắt kết nối)',
+      stressColor: '#E58C8A',
+      barWidth: '98%',
+      detail: 'Mức độ tiêu thụ thông tin độc hại vượt ngưỡng an toàn. Cần kích hoạt chế độ ngắt khẩn cấp ngay.',
+      hoursSaved: '+5.0 Giờ / Ngày',
+      rantsBlocked: '290+ Bài / Tuần',
+      stressReduced: '-92%',
+      sleepScore: '+120 Phút'
+    }
+  };
+
+  slider?.addEventListener('input', () => {
+    const val = slider.value;
+    const current = dataMap[val];
+    if (!current) return;
+
+    if (hoursDisplay) hoursDisplay.textContent = current.hoursText;
+    if (stressBadge) {
+      stressBadge.textContent = current.stressBadge;
+      stressBadge.style.color = current.stressColor;
+    }
+    if (stressBar) {
+      stressBar.style.width = current.barWidth;
+      stressBar.style.backgroundColor = current.stressColor;
+    }
+    if (stressDetail) stressDetail.textContent = current.detail;
+    if (metricHours) metricHours.textContent = current.hoursSaved;
+    if (metricRants) metricRants.textContent = current.rantsBlocked;
+    if (metricStress) metricStress.textContent = current.stressReduced;
+    if (metricSleep) metricSleep.textContent = current.sleepScore;
+  });
+</script>

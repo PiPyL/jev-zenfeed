@@ -50,6 +50,84 @@ body {
   gap: 12px;
 }
 
+/* Custom Vector UI Icons */
+.ui-svg-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  vertical-align: -2px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+
+.title-with-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pill .ui-svg-icon {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+
+.chip .ui-svg-icon {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+
+.btn-xs .ui-svg-icon {
+  width: 12px;
+  height: 12px;
+  margin-right: 3px;
+}
+
+.btn-clear-cache .ui-svg-icon {
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+}
+
+.card-title .ui-svg-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--primary);
+  margin-right: 6px;
+}
+
+.setting-label .ui-svg-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  margin-right: 5px;
+}
+
+.get-key-link .ui-svg-icon {
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+}
+
+.btn-mock-action .ui-svg-icon {
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+}
+
+.btn-secondary .ui-svg-icon {
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+}
+
 /* Header */
 .header {
   display: flex;
@@ -131,6 +209,54 @@ input:checked + .slider:before {
   transform: translateX(20px);
 }
 
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 8px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.tab-btn:hover {
+  color: var(--text-main);
+}
+
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* API Key: quick link to the provider's console */
+.get-key-link {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--primary);
+  text-decoration: none;
+  margin-bottom: 8px;
+}
+
+.get-key-link:hover {
+  text-decoration: underline;
+}
+
 /* Cards */
 .card {
   background: var(--card-bg);
@@ -189,6 +315,16 @@ textarea {
   padding: 0 10px;
   cursor: pointer;
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon .ui-svg-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 0;
+  vertical-align: 0;
 }
 
 /* Badges */
@@ -318,6 +454,8 @@ textarea {
 }
 
 .chip {
+  display: inline-flex;
+  align-items: center;
   background: var(--bg-color);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -331,6 +469,13 @@ textarea {
 .chip:hover {
   border-color: var(--primary);
   background: rgba(24, 119, 242, 0.08);
+}
+
+.chip.active {
+  border-color: var(--primary);
+  background: rgba(24, 119, 242, 0.14);
+  color: var(--primary);
+  font-weight: 600;
 }
 
 /* Setting Rows */
@@ -402,24 +547,89 @@ textarea {
   color: var(--text-muted);
 }
 
-/* Footer & Toast */
-.footer {
-  position: relative;
-}
-
+/* Toast — settings save automatically, so it floats instead of needing a footer */
 .save-toast {
-  position: absolute;
-  bottom: 45px;
-  left: 0;
-  right: 0;
-  text-align: center;
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
   background: #242526;
   color: white;
-  padding: 8px;
-  border-radius: 6px;
+  padding: 6px 14px;
+  border-radius: 16px;
   font-size: 11px;
+  white-space: nowrap;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   animation: fadeIn 0.2s;
+}
+
+.save-toast.toast-error {
+  background: var(--danger);
+}
+
+/* Criteria apply row */
+.criteria-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.criteria-status {
+  font-size: 11px;
+  color: var(--success);
+}
+
+.criteria-status.dirty {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.btn-apply {
+  background: var(--primary);
+  color: white;
+  padding: 5px 12px;
+}
+
+.btn-apply:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btn-apply:disabled {
+  background: var(--border);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* Stats card: clear-cache action */
+.stats-card {
+  position: relative;
+  padding-top: 26px !important;
+}
+
+.btn-clear-cache {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.btn-clear-cache:hover {
+  color: var(--danger);
+  background: rgba(250, 56, 62, 0.08);
+}
+
+.btn-clear-cache.confirm {
+  color: white;
+  background: var(--danger);
 }
 
 @keyframes fadeIn {
