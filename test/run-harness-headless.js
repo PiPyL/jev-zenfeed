@@ -4,6 +4,7 @@
  * Exit code 0 = all harness checks passed.
  */
 import { spawn } from 'child_process';
+import { rm } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
@@ -12,10 +13,20 @@ const HTTP_PORT = 8766;
 const CDP_PORT = 9333;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// A FRESH profile dir every run, not a reused one: killing Chrome (below)
+// marks the profile as "crashed", so a reused profile can trigger Chrome's
+// own session/scroll restoration on the next launch — racing with the
+// harness's own scroll-based reading-zone checks in surprising ways.
+const profileDir = path.join(os.tmpdir(), `jev-harness-profile-${process.pid}-${Date.now()}`);
+
 const server = spawn(process.execPath, ['test/static-server.js'], { env: { ...process.env, PORT: String(HTTP_PORT) }, stdio: 'ignore' });
 const chrome = spawn(CHROME, [
   '--headless=new', `--remote-debugging-port=${CDP_PORT}`, '--no-first-run', '--no-default-browser-check',
-  `--user-data-dir=${path.join(os.tmpdir(), 'jev-harness-profile')}`, 'about:blank'
+  // Fixed size: the harness scrolls specific posts into/out of the "reading
+  // zone" (top ~65% of the viewport, see content.js) and needs a known
+  // viewport height for those checks to be deterministic.
+  '--window-size=1024,900',
+  `--user-data-dir=${profileDir}`, 'about:blank'
 ], { stdio: 'ignore' });
 
 let exitCode = 1;
@@ -32,19 +43,30 @@ try {
   const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 
   await send('Page.navigate', { url: `http://localhost:${HTTP_PORT}/test/content-harness.html` });
-  const expression = 'JSON.stringify(window.__harnessResult?.done ? { ...window.__harnessResult, ' +
-    'lines: [...document.querySelectorAll("#log div")].map(d => d.textContent) } : null)';
+  const expression = 'JSON.stringify({ done: !!window.__harnessResult?.done, failed: window.__harnessResult?.failed || 0, ' +
+    'lines: [...document.querySelectorAll("#log div")].map(d => d.textContent) })';
   let result = null;
-  for (let i = 0; i < 120 && !result; i++) {
+  let lastLineCount = 0;
+  for (let i = 0; i < 150 && !(result && result.done); i++) {
     await sleep(500);
     const r = await send('Runtime.evaluate', { expression, returnByValue: true });
     result = JSON.parse(r.result?.result?.value || 'null');
+    if (result && result.lines.length > lastLineCount) {
+      for (let j = lastLineCount; j < result.lines.length; j++) {
+        console.log(result.lines[j]);
+      }
+      lastLineCount = result.lines.length;
+    }
   }
-  console.log(result ? result.lines.join('\n') : 'TIMEOUT: harness did not finish');
-  exitCode = result && result.failed === 0 ? 0 : 1;
+  if (!result || !result.done) {
+    console.log('TIMEOUT: harness did not finish. Last state:');
+    if (result && result.lines) console.log(result.lines.join('\n'));
+  }
+  exitCode = result && result.done && result.failed === 0 ? 0 : 1;
   ws.close();
 } finally {
   chrome.kill();
   server.kill();
+  await rm(profileDir, { recursive: true, force: true }).catch(() => {});
 }
 process.exit(exitCode);

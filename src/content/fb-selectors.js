@@ -22,6 +22,19 @@ window.JevFB = window.JevFB || {};
   const MAX_CARD_DEPTH = 25;
   const MAX_EXCLUSIVE_CLIMB = 6;
 
+  // Messenger surfaces: the chat tab overlays ([data-pagelet^="MWChat"] /
+  // ChatTab) and the /messages page render every message as a role="row" in
+  // the conversation grid. A post SHARED into a chat reuses the feed's
+  // ad-rendering markers (and Messenger's "Thích" reaction matches
+  // ACTION_SELECTOR), so without this guard private messages were scanned,
+  // classified and bannered as if they were feed posts.
+  const CHAT_SURFACE_SELECTOR = '[data-pagelet^="MWChat"], [data-pagelet^="ChatTab"], [role="row"]';
+
+  function isInChat(el) {
+    return !!el.closest(CHAT_SURFACE_SELECTOR);
+  }
+  JevFB.isInChat = isInChat;
+
   function isInComment(el) {
     const article = el.closest('[role="article"]');
     return !!article && COMMENT_LABEL.test(article.getAttribute('aria-label') || '');
@@ -94,7 +107,7 @@ window.JevFB = window.JevFB || {};
     const found = new Set();
 
     document.querySelectorAll(ANCHOR_SELECTOR).forEach(anchor => {
-      if (anchor.closest('.jev-ui') || isInComment(anchor)) return;
+      if (anchor.closest('.jev-ui') || isInComment(anchor) || isInChat(anchor)) return;
       if (!cardCache.has(anchor)) {
         // New anchor already inside a resolved card (e.g. its message block):
         // adopt that card instead of walking the DOM, and remember it.
@@ -107,7 +120,7 @@ window.JevFB = window.JevFB || {};
     });
 
     document.querySelectorAll(LEGACY_SELECTOR).forEach(el => {
-      if (isInComment(el) || el.getAttribute('role') === 'article' && el.closest('[role="article"]') !== el) return;
+      if (isInComment(el) || isInChat(el) || el.getAttribute('role') === 'article' && el.closest('[role="article"]') !== el) return;
       if (!el.querySelector('div[dir="auto"], span[dir="auto"]')) return;
       const container = JevFB.getTopPostContainer(el);
       if (container && container !== document.body) found.add(container);

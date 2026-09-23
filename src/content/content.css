@@ -1,11 +1,9 @@
 /* Jev AI Facebook Filter - Overlay & Banner Styles */
 
-/* Analyzing state: subtle anti-FOUC blur */
-.jev-analyzing {
-  filter: blur(3px) !important;
-  opacity: 0.8 !important;
-  transition: filter 0.25s ease, opacity 0.25s ease !important;
-  pointer-events: none !important;
+/* Anchor for absolutely-positioned overlays (blur tag / corner label) that
+   don't otherwise change a post's own layout. */
+.jev-relative-anchor {
+  position: relative !important;
 }
 
 /* Collapsed Post: hide original elements except banner */
@@ -21,7 +19,10 @@
   --jev-text: var(--primary-text, #080809);
   --jev-muted: var(--secondary-text, #65686c);
   --jev-divider: var(--divider, #ced0d4);
-  --jev-accent: var(--primary-button-background, #0866ff);
+  /* Neutral gray, not FB's accent blue: a filtered post is routine
+     housekeeping, not an alert, and shouldn't out-compete real content for
+     attention while scrolling. */
+  --jev-accent: var(--secondary-text, #65686c);
   --jev-btn-bg: var(--secondary-button-background, #e2e5e9);
   --jev-btn-text: var(--secondary-button-text, #080809);
   --jev-hover: var(--hover-overlay, rgba(0, 0, 0, 0.05));
@@ -81,19 +82,6 @@
   font-size: 15px !important;
   font-weight: 600 !important;
   color: var(--jev-text) !important;
-}
-
-.jev-badge-conf {
-  display: inline-flex !important;
-  align-items: center !important;
-  height: 20px !important;
-  padding: 0 8px !important;
-  border-radius: 10px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  font-variant-numeric: tabular-nums !important;
-  color: var(--jev-accent) !important;
-  background: color-mix(in srgb, var(--jev-accent) 12%, transparent) !important;
 }
 
 .jev-banner-desc {
@@ -214,60 +202,656 @@
 
 @media (prefers-reduced-motion: reduce) {
   .jev-banner { animation: none !important; }
-  .jev-analyzing, .jev-btn-reveal { transition: none !important; }
+  .jev-btn-reveal { transition: none !important; }
 }
 
-/* Blurred Post Mode — blur the post's own content, never our control tag,
-   so the "Xem nội dung" button stays readable and clickable. */
+/* Slim banner — after the first ~20 hidden posts in a session, the full-size
+   banner (with icon + description) gives way to a compact one-liner. By then
+   the user has already seen what the filter catches; a wall of full banners
+   in a spam-heavy feed would be its own kind of noise. */
+.jev-banner-slim {
+  min-height: 0 !important;
+  padding: 6px 12px !important;
+  gap: 8px !important;
+}
+
+.jev-banner-slim .jev-banner-icon {
+  width: 22px !important;
+  height: 22px !important;
+}
+
+.jev-banner-slim .jev-banner-icon svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+.jev-banner-slim .jev-banner-heading {
+  font-size: 13px !important;
+}
+
+.jev-banner-slim .jev-banner-desc {
+  display: none !important;
+}
+
+.jev-banner-slim .jev-btn-reveal,
+.jev-banner-slim .jev-btn-safe {
+  height: 28px !important;
+  font-size: 12px !important;
+}
+
+/* Blurred Post Mode — preserves natural post dimensions (no height change)
+   to prevent layout shifts (zero CLS) and provide a smooth Facebook browsing experience. */
 .jev-blurred-post {
   position: relative !important;
+  overflow: hidden !important;
+  contain: content !important;
+  border-radius: var(--card-corner-radius, 8px) !important;
 }
 
 .jev-blurred-post > *:not(.jev-ui) {
-  filter: blur(8px) !important;
+  filter: blur(28px) saturate(0.35) brightness(0.65) !important;
+  opacity: 0.65 !important;
   pointer-events: none !important;
   user-select: none !important;
-  transition: filter 0.3s ease !important;
+  transition: filter 0.3s ease, opacity 0.25s ease !important;
 }
 
-.jev-blur-tag {
+.__fb-dark-mode .jev-blurred-post > *:not(.jev-ui) {
+  filter: blur(28px) saturate(0.35) brightness(0.5) !important;
+  opacity: 0.55 !important;
+}
+
+/* ==================== Canvas Overlay (Zero-CLS Digital Sanctuary) ==================== */
+.jev-blur-canvas {
   position: absolute !important;
-  top: 10px !important;
-  left: 10px !important;
-  background: rgba(0, 0, 0, 0.78) !important;
-  color: white !important;
-  padding: 6px 10px !important;
-  border-radius: 6px !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 16px !important;
+  background: rgba(240, 243, 246, 0.45) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  z-index: 10 !important;
+  border-radius: var(--card-corner-radius, 8px) !important;
+  border: none !important;
+  animation: jev-canvas-in 0.22s ease-out !important;
+  overflow: hidden !important;
+}
+
+@keyframes jev-canvas-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.__fb-dark-mode .jev-blur-canvas {
+  background: rgba(18, 20, 24, 0.55) !important;
+}
+
+/* Floating Zen Card — centered, modern frosted glass, zero-CLS */
+.jev-floating-card {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 440px !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 14px !important;
+  padding: 22px 24px !important;
+  border-radius: 16px !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(20px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  text-align: center !important;
+  animation: jev-card-pop 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes jev-card-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.__fb-dark-mode .jev-floating-card {
+  background: rgba(36, 37, 38, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45), 0 2px 10px rgba(0, 0, 0, 0.25) !important;
+}
+
+.jev-card-header {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.jev-canvas-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
   font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #557c68 !important;
+  background: rgba(127, 168, 148, 0.16) !important;
+  padding: 4px 12px !important;
+  border-radius: 9999px !important;
+}
+
+.__fb-dark-mode .jev-canvas-badge {
+  color: #8fbea6 !important;
+  background: rgba(127, 168, 148, 0.18) !important;
+}
+
+.jev-canvas-badge svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.jev-card-body {
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.jev-card-footer {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  margin-top: 4px !important;
+}
+
+/* Zen Oasis Widget */
+.jev-zen-widget {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 14px !important;
+  width: 100% !important;
+}
+
+.jev-zen-breathing-ring {
+  width: 52px !important;
+  height: 52px !important;
+  border-radius: 50% !important;
+  border: 2px solid #7FA894 !important;
+  box-shadow: 0 0 16px rgba(127, 168, 148, 0.35), inset 0 0 10px rgba(127, 168, 148, 0.2) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #557c68 !important;
+  animation: jev-box-breathing 16s ease-in-out infinite !important;
+  will-change: transform, opacity !important;
+}
+
+.__fb-dark-mode .jev-zen-breathing-ring {
+  color: #8fbea6 !important;
+}
+
+@keyframes jev-box-breathing {
+  0% { transform: scale(0.92); opacity: 0.75; }
+  25% { transform: scale(1.18); opacity: 1; }
+  50% { transform: scale(1.18); opacity: 0.95; }
+  75% { transform: scale(0.92); opacity: 0.75; }
+  100% { transform: scale(0.92); opacity: 0.75; }
+}
+
+.jev-zen-quote-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  width: 100% !important;
+  padding: 0 4px !important;
+  box-sizing: border-box !important;
+}
+
+.jev-zen-quote-text {
+  font-size: 14.5px !important;
+  line-height: 1.55 !important;
+  font-style: italic !important;
+  font-weight: 500 !important;
+  color: #1c1e21 !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  margin: 0 !important;
+}
+
+.__fb-dark-mode .jev-zen-quote-text {
+  color: #E4E6EB !important;
+}
+
+.jev-zen-quote-author {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #7FA894 !important;
+}
+
+/* AI X-Ray Widget */
+.jev-xray-widget {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 10px !important;
+  width: 100% !important;
+  padding: 14px 16px !important;
+  border-radius: 12px !important;
+  background: rgba(127, 168, 148, 0.08) !important;
+  border: 1px solid rgba(127, 168, 148, 0.2) !important;
+  box-sizing: border-box !important;
+}
+
+.jev-xray-tag {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  color: #d9534f !important;
+}
+
+.jev-xray-reason {
+  font-size: 13.5px !important;
+  line-height: 1.5 !important;
+  font-weight: 500 !important;
+  color: #1c1e21 !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: normal !important;
+}
+
+.__fb-dark-mode .jev-xray-reason {
+  color: #F0F2F5 !important;
+}
+
+/* Flashcard Widget */
+.jev-flashcard-widget {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  padding: 16px 20px !important;
+  border-radius: 14px !important;
+  background: rgba(155, 183, 212, 0.1) !important;
+  border: 1px solid rgba(155, 183, 212, 0.25) !important;
+  box-sizing: border-box !important;
+}
+
+.jev-flashcard-term {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  color: #4D7362 !important;
+}
+
+.__fb-dark-mode .jev-flashcard-term {
+  color: #9BB7D4 !important;
+}
+
+.jev-flashcard-phonetic {
+  font-size: 12.5px !important;
+  color: #65686C !important;
+}
+
+.__fb-dark-mode .jev-flashcard-phonetic {
+  color: #B0B3B8 !important;
+}
+
+.jev-flashcard-meaning {
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  line-height: 1.5 !important;
+  color: #1c1e21 !important;
+  word-wrap: break-word !important;
+  white-space: normal !important;
+}
+
+.__fb-dark-mode .jev-flashcard-meaning {
+  color: #E4E6EB !important;
+}
+
+.jev-flashcard-example {
+  font-size: 12px !important;
+  font-style: italic !important;
+  color: #65686C !important;
+  word-wrap: break-word !important;
+  white-space: normal !important;
+}
+
+.__fb-dark-mode .jev-flashcard-example {
+  color: #B0B3B8 !important;
+}
+
+.jev-btn-next-card {
+  margin-top: 4px !important;
+  height: 26px !important;
+  padding: 0 12px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  border: 1px solid rgba(127, 168, 148, 0.4) !important;
+  border-radius: 9999px !important;
+  background: transparent !important;
+  color: #7FA894 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+/* Button styles in Floating Card */
+.jev-canvas-btn {
+  height: 34px !important;
+  padding: 0 16px !important;
+  border-radius: 17px !important;
+  border: 0 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  box-sizing: border-box !important;
+}
+
+.jev-canvas-btn-reveal {
+  background: #557c68 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(85, 124, 104, 0.3) !important;
+}
+
+.jev-canvas-btn-reveal:hover {
+  background: #476a59 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 10px rgba(85, 124, 104, 0.4) !important;
+}
+
+.jev-canvas-btn-reveal:active {
+  transform: scale(0.97) !important;
+}
+
+.__fb-dark-mode .jev-canvas-btn-reveal {
+  background: #7FA894 !important;
+  color: #121418 !important;
+}
+
+.__fb-dark-mode .jev-canvas-btn-reveal:hover {
+  background: #90b8a4 !important;
+}
+
+/* Hold to Reveal Progress */
+.jev-canvas-btn-hold {
+  position: relative !important;
+  overflow: hidden !important;
+  user-select: none !important;
+}
+
+.jev-hold-fill {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.3) !important;
+  pointer-events: none !important;
+}
+
+.jev-canvas-btn-safe {
+  background: transparent !important;
+  color: #65686C !important;
+  border: 1px solid rgba(127, 168, 148, 0.3) !important;
+}
+
+.jev-canvas-btn-safe:hover {
+  color: #1c1e21 !important;
+  background: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(127, 168, 148, 0.6) !important;
+}
+
+.__fb-dark-mode .jev-canvas-btn-safe {
+  color: #B0B3B8 !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.__fb-dark-mode .jev-canvas-btn-safe:hover {
+  color: #FFFFFF !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Compact Layout for Small Posts (< 220px height) */
+.jev-blur-canvas.jev-canvas-compact {
+  padding: 8px 12px !important;
+}
+
+.jev-blur-canvas.jev-canvas-compact .jev-floating-card {
+  padding: 10px 16px !important;
+  gap: 8px !important;
+}
+
+.jev-blur-canvas.jev-canvas-compact .jev-zen-widget {
+  flex-direction: row !important;
+  gap: 10px !important;
+}
+
+.jev-blur-canvas.jev-canvas-compact .jev-zen-breathing-ring {
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 0 !important;
+  border-width: 1.5px !important;
+}
+
+.jev-blur-canvas.jev-canvas-compact .jev-zen-quote-container {
+  text-align: left !important;
+}
+
+.jev-blur-canvas.jev-canvas-compact .jev-zen-quote-text {
+  font-size: 12.5px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 240px !important;
+}
+
+.jev-blur-canvas.jev-canvas-compact .jev-zen-quote-author {
+  display: none !important;
+}
+
+.jev-blur-canvas.jev-canvas-compact .jev-canvas-btn {
+  height: 28px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+}
+
+/* Centered frosted glass capsule for clean, non-intrusive action controls */
+.jev-blur-tag:not(.jev-blur-canvas) {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  background: rgba(18, 20, 24, 0.88) !important;
+  backdrop-filter: blur(16px) saturate(1.8) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.8) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  padding: 8px 14px !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+  font-size: 13px !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
   display: flex !important;
-  gap: 8px !important;
+  gap: 10px !important;
   align-items: center !important;
+  justify-content: center !important;
+  max-width: calc(100% - 32px) !important;
+  box-sizing: border-box !important;
   z-index: 99 !important;
+  white-space: nowrap !important;
+  animation: jev-tag-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes jev-tag-in {
+  from { opacity: 0; transform: translate(-50%, -46%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.jev-blur-icon {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #7fa894 !important; /* Soft Sage Calming Accent */
+}
+
+.jev-blur-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.jev-blur-text {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: #f0f2f5 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  max-width: 220px !important;
+}
+
+.jev-blur-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 0 0 auto !important;
 }
 
 .jev-blur-tag button {
-  background: white !important;
-  color: black !important;
+  height: 28px !important;
+  line-height: 28px !important;
   border: none !important;
-  padding: 3px 8px !important;
-  border-radius: 4px !important;
-  font-size: 11px !important;
+  padding: 0 12px !important;
+  border-radius: 14px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
+  font-family: inherit !important;
   cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  box-sizing: border-box !important;
+}
+
+.jev-blur-tag .jev-btn-show {
+  background: #ffffff !important;
+  color: #080809 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+
+.jev-blur-tag .jev-btn-show:hover {
+  background: #e4e6eb !important;
+  transform: scale(1.02) !important;
+}
+
+.jev-blur-tag .jev-btn-show:active {
+  transform: scale(0.98) !important;
 }
 
 .jev-blur-tag .jev-btn-safe {
-  height: auto !important;
-  padding: 3px 6px !important;
-  background: transparent !important;
+  height: 28px !important;
+  padding: 0 10px !important;
+  background: rgba(255, 255, 255, 0.12) !important;
   color: #e4e6eb !important;
-  font-size: 11px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.jev-blur-tag .jev-btn-safe:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
+  transform: scale(1.02) !important;
+}
+
+.jev-blur-tag .jev-btn-safe:active {
+  transform: scale(0.98) !important;
+}
+
+
+
+@media (max-width: 480px) {
+  .jev-blur-tag {
+    padding: 6px 10px !important;
+    gap: 6px !important;
+  }
+  .jev-blur-text {
+    max-width: 130px !important;
+    font-size: 12px !important;
+  }
+  .jev-blur-tag button {
+    height: 26px !important;
+    line-height: 26px !important;
+    padding: 0 8px !important;
+    font-size: 11px !important;
+  }
 }
 
 .jev-btn-reveal:focus-visible,
 .jev-btn-safe:focus-visible,
-.jev-blur-tag button:focus-visible {
+.jev-blur-tag button:focus-visible,
+.jev-corner-btn:focus-visible {
   outline: 2px solid var(--primary-button-background, #0866ff) !important;
   outline-offset: 2px !important;
+}
+
+/* ==================== Corner label ====================
+   For a post the user has already read (or interacted with) by the time a
+   verdict lands: a small, quiet badge, no blur, no height change, no
+   collapse. content.js finalizes the real collapse once the post scrolls
+   out of the reading zone, or the user taps "Collapse" here. */
+.jev-corner-label {
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+  left: auto !important;
+  max-width: calc(100% - 20px) !important;
+  z-index: 99 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: rgba(0, 0, 0, 0.72) !important;
+  color: #fff !important;
+  padding: 5px 6px 5px 10px !important;
+  border-radius: 20px !important;
+  font-size: 12px !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+.jev-corner-text {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.jev-corner-btn {
+  flex: 0 0 auto !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #fff !important;
+  border: none !important;
+  padding: 4px 9px !important;
+  border-radius: 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+}
+
+.jev-corner-btn:hover {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+@media (max-width: 480px) {
+  .jev-corner-label .jev-corner-text { display: none !important; }
 }

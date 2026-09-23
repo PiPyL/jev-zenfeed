@@ -4,6 +4,16 @@
  * and handles resilient lazy-load text extraction.
  *
  * Privacy: this script only reads PUBLIC settings (never the API key).
+ *
+ * UX review (2026-09): a post is never yanked away while the user is looking
+ * at it. Two independent IntersectionObservers do the work:
+ *  - `viewportObserver` — the existing look-ahead/prefetch signal (adaptive
+ *    margin, grows with scroll speed) that decides WHEN to ask the AI.
+ *  - `readingZoneObserver` — a tighter signal (top ~65% of the viewport,
+ *    where the eye actually reads) used only to decide HOW to show a
+ *    violation: collapse immediately if the post isn't there, otherwise blur
+ *    in place / label quietly and defer the real collapse until it leaves.
+ * See `applyHideDecision` for the full decision matrix.
  */
 
 (function() {
@@ -24,37 +34,60 @@
 
   let isEngineInitialized = false;
   let viewportObserver = null;
+  let readingZoneObserver = null;
   let mutationObserver = null;
   let heartbeatTimer = null;
 
   const BATCH_INTERVAL_MS = 80;
-  const MAX_BATCH_SIZE = 8;
+  const MAX_BATCH_SIZE = 12;
   const RETRY_DELAY_MS = 450;
   const MAX_RETRIES = 3;
   const RESPONSE_TIMEOUT_MS = 12000; // never leave a post blurred if the worker dies
   const SCAN_THROTTLE_MS = 300;
   const VISIBLE_RECHECK_MS = 1000;
-  // Safety net: Facebook often reveals post text through attribute/style changes
-  // (hydration, lazy render) that emit no childList mutation. Without a periodic
-  // re-scan, posts on the first screen stay unchecked until the user scrolls.
   const HEARTBEAT_MS = 2000;
-  // Decide about one screen ahead, so posts are usually decided before the user
-  // reaches them (no visible blur) — they would be scrolled into view anyway.
-  const PREFETCH_MARGIN = '100% 0px';
+  const BADGE_REPORT_MS = 400;
+  // Belt-and-braces full rescan cadence: registration normally runs only when
+  // a childList mutation was seen (`domDirty`), so this is the safety net for
+  // any insertion the MutationObserver could somehow miss.
+  const FULL_RESCAN_MS = 30000;
   // "See more" / late alt text: re-evaluate only if the text grew materially.
   const EXPAND_MIN_CHARS = 80;
   const EXPAND_MIN_RATIO = 0.2;
-  const BADGE_REPORT_MS = 400;
+
+  // Look-ahead/look-behind margin for the AI call, adaptive to scroll speed
+  // (index into PREFETCH_MARGINS below): decide about a screen or more ahead
+  // so posts are usually resolved before the user reaches them, without
+  // over-prefetching (and over-spending tokens/CPU) while reading slowly. The
+  // TOP margin stays fixed at 100% regardless of speed — a post the user just
+  // scrolled past must stay in `visible` for a while, or a criteria/threshold
+  // change made right after scrolling would never reach it (refreshVisible()
+  // only re-checks the current `visible` set).
+  const PREFETCH_MARGINS = ['100% 0px 100% 0px', '100% 0px 200% 0px', '100% 0px 350% 0px'];
+  const SCROLL_SPEED_FAST = 2500;   // px/s
+  const SCROLL_SPEED_MEDIUM = 600;  // px/s
+
+  // "Reading zone": the top portion of the viewport where the eye actually
+  // reads while scrolling down. A post only peeking in at the bottom edge, or
+  // already scrolled above, is NOT in it — collapsing those never disturbs
+  // what the user is looking at.
+  const READING_ZONE_TOP_FRACTION = 0.65;
+  const READING_ZONE_MARGIN = '0px 0px -35% 0px';
+  // How long a post must have sat continuously in the reading zone before we
+  // consider it "already read" — at that point hiding it is more disruptive
+  // than useful, so we switch from blur-in-place to a quiet label.
+  const CLEAR_SEEN_MS = 700;
 
   /**
    * Per-element state. Keyed by the DOM node, so ids stay unique even when two
    * posts have identical content (same ad twice).
    * @type {WeakMap<HTMLElement, {uid: string, identity?: {author: string, head: string}, hash?: string, textLen?: number,
-   *   sig?: string, decidedKey?: string, decision?: object, pending: boolean, seen: boolean, retries: number}>}
+   *   sig?: string, decidedKey?: string, decision?: object, pending: boolean, retries: number,
+   *   inReadingZone?: boolean, readingZoneSince: number, interacted: boolean, pendingCollapse: boolean}>}
    */
   const postState = new WeakMap();
   const tracked = new Set();   // registered post containers (pruned when detached)
-  const visible = new Set();   // containers currently near/in the viewport
+  const visible = new Set();   // containers currently within the prefetch margin
   const candidateQueue = [];
   let batchTimer = null;
   let uidCounter = 0;
@@ -62,15 +95,27 @@
   function getState(el) {
     let st = postState.get(el);
     if (!st) {
-      st = { uid: `p${++uidCounter}`, pending: false, seen: false, retries: 0 };
+      st = {
+        uid: `p${++uidCounter}`, pending: false, retries: 0,
+        inReadingZone: undefined, readingZoneSince: 0, interacted: false, pendingCollapse: false
+      };
       postState.set(el, st);
     }
     return st;
   }
 
-  /** Decisions are valid for a specific (criteria, threshold) pair. */
+  /**
+   * Decisions are valid for a specific (criteria, threshold) pair.
+   * Memoized: recomputed only when `config` is reassigned (storage load /
+   * onChanged), not on every evaluatePost — this sits on the hottest path
+   * (per post, per intersection event and per visible re-check).
+   */
+  let decisionKeyCache = null;
   function currentDecisionKey() {
-    return `${JevFB.fastHash(criteriaFingerprint(config.filterCriteria))}|${config.confidenceThreshold}`;
+    if (decisionKeyCache === null) {
+      decisionKeyCache = `${JevFB.fastHash(criteriaFingerprint(config.filterCriteria))}|${config.confidenceThreshold}`;
+    }
+    return decisionKeyCache;
   }
 
   /**
@@ -80,6 +125,25 @@
   function signatureOf(el) {
     const text = el.textContent;
     return `${text.length}:${el.getElementsByTagName('img').length}:${text.slice(0, 80)}`;
+  }
+
+  function clearSeenMs(st) {
+    if (!st.inReadingZone || !st.readingZoneSince) return 0;
+    return performance.now() - st.readingZoneSince;
+  }
+
+  /**
+   * A brand-new (or just-recycled) post has no reading-zone reading yet — the
+   * observer's next crossing event might be seconds away if the post already
+   * sits still inside the zone. Derive it once, synchronously, so the very
+   * first decision for this element isn't wrongly treated as "off screen".
+   */
+  function syncZoneStateNow(el, st) {
+    const r = el.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const inZone = r.bottom > 0 && r.top < vh * READING_ZONE_TOP_FRACTION;
+    st.inReadingZone = inZone;
+    st.readingZoneSince = inZone ? performance.now() : 0;
   }
 
   // ---- Toolbar badge: number of hidden posts in this tab ----
@@ -102,6 +166,25 @@
     }, BADGE_REPORT_MS);
   }
 
+  // ---- "Jank avoided" metric: how many times a violation was NOT collapsed
+  // while on screen (batched to background, like the badge above, so we
+  // never write chrome.storage.local directly from a content script — see
+  // decision-cache.js's own note on why that broadcasts to every FB tab). ----
+  let deferredSinceReport = 0;
+  let deferredTimer = null;
+  function reportDeferred() {
+    deferredSinceReport++;
+    if (deferredTimer) return;
+    deferredTimer = setTimeout(() => {
+      deferredTimer = null;
+      const n = deferredSinceReport;
+      deferredSinceReport = 0;
+      try {
+        chrome.runtime.sendMessage({ action: 'UX_METRIC', deferred: n }).catch(() => {});
+      } catch (_) {}
+    }, BADGE_REPORT_MS);
+  }
+
   /**
    * Send log event to Background Logger
    */
@@ -117,6 +200,7 @@
   // 1. Load initial configuration (public keys only)
   chrome.storage.local.get(pickPublic(DEFAULT_SETTINGS), (stored) => {
     config = pickPublic(stored);
+    decisionKeyCache = null;
     if (config.extensionEnabled) initEngine();
   });
 
@@ -140,6 +224,7 @@
 
     if (publicChanged) {
       config = next;
+      decisionKeyCache = null;
       applyConfigChange(prev);
     } else if (credentialsChanged && config.extensionEnabled && isEngineInitialized) {
       refreshVisible();
@@ -159,6 +244,10 @@
 
     if (!prev.extensionEnabled) {
       JevFB.log('info', 'CONFIG', 'Bộ lọc đã BẬT lại trên trang Facebook');
+      // Posts added while the filter was OFF were never registered (the
+      // observer early-returns when disabled) — force a registration walk.
+      domDirty = true;
+      scheduleScan();
       refreshVisible();
       return;
     }
@@ -191,6 +280,8 @@
         st.decidedKey = undefined;
         st.decision = undefined;
         st.sig = undefined;
+        st.pendingCollapse = false;
+        st.interacted = false;
       }
     });
     reportHiddenCount();
@@ -200,8 +291,9 @@
   function rerenderHiddenPosts() {
     tracked.forEach(el => {
       const st = postState.get(el);
-      if (el.dataset.jevStatus === 'hidden' && st && st.decision) {
-        JevFB.hidePost(el, st.decision, { hideMode: config.hideMode, criteria: config.filterCriteria, lang: config.language });
+      const deferredMode = el.dataset.jevHideMode === 'soft' || el.dataset.jevHideMode === 'reading-blur';
+      if (el.dataset.jevStatus === 'hidden' && !deferredMode && st && st.decision) {
+        JevFB.hidePost(el, st.decision, hideOpts());
       }
     });
   }
@@ -210,22 +302,89 @@
     visible.forEach(el => evaluatePost(el));
   }
 
-  // 3. Viewport Intersection Observer
+  // 3. Viewport intersection: WHEN to ask the AI (adaptive look-ahead) and
+  //    WHERE the reading zone currently is (for the hide decision).
+  function onViewportEntries(entries) {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        visible.add(entry.target);
+        if (config.extensionEnabled) evaluatePost(entry.target);
+      } else {
+        visible.delete(entry.target);
+      }
+    });
+  }
+
+  function onReadingZoneEntries(entries) {
+    entries.forEach(entry => {
+      const el = entry.target;
+      const st = getState(el);
+      if (entry.isIntersecting) {
+        if (!st.inReadingZone) st.readingZoneSince = performance.now();
+        st.inReadingZone = true;
+      } else {
+        st.inReadingZone = false;
+        st.readingZoneSince = 0;
+        if (st.pendingCollapse) finalizeDeferredCollapse(el, st);
+      }
+    });
+  }
+
+  function recreateViewportObserver(margin) {
+    if (viewportObserver) viewportObserver.disconnect();
+    visible.clear();
+    viewportObserver = new IntersectionObserver(onViewportEntries, { rootMargin: margin });
+    tracked.forEach(el => { if (el.isConnected) viewportObserver.observe(el); });
+  }
+
+  // Adaptive look-ahead: the faster the user scrolls, the further ahead we
+  // need to decide to still be resolved by the time they arrive. Recomputed
+  // from actual scroll speed (EMA), only recreating the observer when the
+  // bucket changes (cheap hysteresis, not a per-frame cost).
+  let scrollMarginBucket = 0;
+  let lastScrollY = 0;
+  let lastScrollT = 0;
+  let scrollSpeedEma = 0;
+
+  function onScroll() {
+    const now = performance.now();
+    if (lastScrollT === 0) { lastScrollT = now; lastScrollY = window.scrollY; return; }
+    const dt = now - lastScrollT;
+    if (dt < 120) return; // sample at a bounded rate, not every scroll event
+    const dy = Math.abs(window.scrollY - lastScrollY);
+    scrollSpeedEma = scrollSpeedEma * 0.6 + (dy / (dt / 1000)) * 0.4;
+    lastScrollY = window.scrollY;
+    lastScrollT = now;
+
+    const bucket = scrollSpeedEma > SCROLL_SPEED_FAST ? 2 : scrollSpeedEma > SCROLL_SPEED_MEDIUM ? 1 : 0;
+    if (bucket !== scrollMarginBucket) {
+      scrollMarginBucket = bucket;
+      recreateViewportObserver(PREFETCH_MARGINS[bucket]);
+    }
+  }
+
+  /** When the user stops scrolling, don't make a post that's already on
+   *  screen wait out the normal micro-batch delay for nothing. */
+  function onScrollEnd() {
+    if (batchTimer) { clearTimeout(batchTimer); flushBatch(); }
+  }
+
   function setupViewportObserver() {
     if (viewportObserver) return;
+    viewportObserver = new IntersectionObserver(onViewportEntries, { rootMargin: PREFETCH_MARGINS[0] });
+    readingZoneObserver = new IntersectionObserver(onReadingZoneEntries, { rootMargin: READING_ZONE_MARGIN });
+    window.addEventListener('scroll', onScroll, { passive: true });
+    if ('onscrollend' in window) window.addEventListener('scrollend', onScrollEnd);
+  }
 
-    viewportObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          visible.add(entry.target);
-          if (config.extensionEnabled) evaluatePost(entry.target);
-        } else {
-          visible.delete(entry.target);
-        }
-      });
-    }, {
-      rootMargin: PREFETCH_MARGIN
-    });
+  /** Any click on the post's own content (Like, Comment, See more, opening
+   *  media...) counts as the user actively engaging with it — from then on we
+   *  never auto-collapse this post out from under them, only label it. Clicks
+   *  on our own controls don't count (they're handled by their own buttons). */
+  function onPostInteraction(e) {
+    if (e.target && e.target.closest && e.target.closest('.jev-ui')) return;
+    const st = postState.get(e.currentTarget);
+    if (st) st.interacted = true;
   }
 
   /**
@@ -240,8 +399,9 @@
     if (st.pending) return;
 
     const key = currentDecisionKey();
+    const sig = signatureOf(postEl);
     // Fast path: decided for the current settings and the card is unchanged
-    if (st.decidedKey === key && st.sig === signatureOf(postEl)) return;
+    if (st.decidedKey === key && st.sig === sig) return;
 
     const postData = JevFB.extractPostData(postEl);
 
@@ -268,17 +428,23 @@
     }
     st.identity = { author: postData.author, head: postData.head };
 
+    // Brand-new state (first look, or just reset above): derive the reading
+    // zone synchronously instead of waiting for the next crossing event,
+    // which may never come if the recycled node didn't move.
+    if (st.inReadingZone === undefined) syncZoneStateNow(postEl, st);
+
     if (st.decidedKey === key && (st.hash === postData.hash || keepsDecision(st, postData))) {
       st.hash = postData.hash;
       st.textLen = postData.text.length;
       // Up to date — but FB may have re-rendered the post (virtualized scroll)
-      // and dropped our banner: re-apply so a hidden post never stays blank.
-      if (st.decision && st.decision.shouldHide && config.hideMode !== 'remove' &&
-          !postEl.querySelector(':scope > .jev-ui')) {
-        delete postEl.dataset.jevHideMode; // force a full re-render in hidePost
-        JevFB.hidePost(postEl, st.decision, { hideMode: config.hideMode, criteria: config.filterCriteria, lang: config.language });
+      // and dropped our banner/label: re-apply through the same decision
+      // matrix so a hidden post never silently reverts to plain.
+      if (st.decision && st.decision.shouldHide && !st.pendingCollapse && hideArtifactMissing(postEl)) {
+        applyHideDecision(postEl, st);
+        st.sig = signatureOf(postEl); // the repair injected DOM — refresh the signature
+      } else {
+        st.sig = sig; // unchanged since the fast-path check above (no await between)
       }
-      st.sig = signatureOf(postEl);
       return;
     }
 
@@ -287,14 +453,13 @@
       return;
     }
 
-    // Anti-FOUC blur only for posts the user has never seen. Re-checks of
-    // posts already on screen (expanded text, new criteria, retry) are silent.
-    const firstLook = !st.seen && !st.decidedKey;
     st.pending = true;
-    if (firstLook) JevFB.applyAnalyzingState(postEl, config.antiFoucBlur);
+    postEl.dataset.jevStatus = 'analyzing';
 
     candidateQueue.push({ element: postEl, state: st, data: postData, key });
-    scheduleBatchFlush();
+    // A post already inside the reading zone shouldn't wait out the normal
+    // micro-batch window behind posts still off-screen.
+    scheduleBatchFlush(st.inReadingZone === true);
   }
 
   /**
@@ -311,19 +476,126 @@
     return grown < Math.max(EXPAND_MIN_CHARS, st.textLen * EXPAND_MIN_RATIO);
   }
 
+  /** Whether the mode-appropriate hidden artifact is actually present in the
+   *  DOM. A post in a deferred (soft/reading-blur) state manages its own
+   *  artifact through the decision matrix, so it's never "missing" here. */
+  function hideArtifactMissing(el) {
+    if (el.dataset.jevHideMode === 'soft' || el.dataset.jevHideMode === 'reading-blur') return false;
+    if (config.hideMode === 'remove') return el.dataset.jevRemoved !== 'true';
+    return !el.querySelector(':scope > .jev-ui');
+  }
+
+  function hideOpts() {
+    return {
+      hideMode: config.hideMode,
+      criteria: config.filterCriteria,
+      lang: config.language,
+      blurPreset: config.blurPreset,
+      blurFlashcardTopic: config.blurFlashcardTopic,
+      blurCustomQuotes: config.blurCustomQuotes,
+      blurRevealFriction: config.blurRevealFriction
+    };
+  }
+
+  function collapseNow(el, decision) {
+    JevFB.removeSoftLabel(el);
+    JevFB.hidePost(el, decision, hideOpts());
+  }
+
+  /** Fresh in the reading zone, not yet decided-hidden: blur in place (no
+   *  height change) with the REAL reason, distinct from the pre-decision
+   *  "Checking..." tag. Reuses the confirmed hide's own bookkeeping mode
+   *  ('reading-blur') so a later hideMode change or repair pass can tell it
+   *  apart from the user's permanent blur-mode setting. */
+  function applyReadingBlur(el, decision) {
+    if (el.dataset.jevHideMode === 'reading-blur') return; // already showing it
+    JevFB.unhidePost(el);
+    el.dataset.jevStatus = 'hidden';
+    el.dataset.jevHideMode = 'reading-blur';
+    el.classList.add('jev-blurred-post');
+    JevFB.injectBlurControls(el, decision, hideOpts());
+  }
+
   /**
-   * Schedule batch dispatch
+   * THE decision matrix for a confirmed violation. Never called until
+   * `st.decision.shouldHide` is true.
+   *   not in the reading zone         -> collapse for real, right now
+   *   interacted, or already read     -> quiet corner label, defer collapse
+   *   fresh in the reading zone       -> blur in place, defer collapse
+   * "Defer" means: finalize into the user's real hideMode once the post
+   * leaves the reading zone (`finalizeDeferredCollapse`), or immediately if
+   * the user taps "Collapse" (`JevFB.onForceCollapse`).
    */
-  function scheduleBatchFlush() {
+  function applyHideDecision(el, st) {
+    const decision = st.decision;
+    if (!decision || !decision.shouldHide) return;
+
+    // An explicit user reveal ("Xem nội dung") outranks every automatic
+    // re-application. A revealed post reaches here via the repair/re-check
+    // pass: in blur mode revealing removed the control tag — the only
+    // .jev-ui artifact — so once Facebook mutates timestamps/counts the
+    // artifact looks "missing" and the verdict would be re-applied, yanking
+    // the content back from under the reader. The reveal is still cleared
+    // by the intentional paths, which all reset the class first: hideMode
+    // change (rerenderHiddenPosts -> hidePost), "Không phải spam",
+    // disabling the filter, or FB recycling the node (unhidePost).
+    if (el.classList.contains('jev-revealed')) return;
+
+    if (!st.inReadingZone) {
+      st.pendingCollapse = false;
+      collapseNow(el, decision);
+      return;
+    }
+
+    reportDeferred();
+    st.pendingCollapse = true;
+
+    if (st.interacted || clearSeenMs(st) >= CLEAR_SEEN_MS) {
+      JevFB.applySoftLabel(el, decision, { criteria: config.filterCriteria, lang: config.language });
+    } else {
+      applyReadingBlur(el, decision);
+    }
+  }
+
+  /** The post left the reading zone while a collapse was deferred: apply it
+   *  for real now, unless the user engaged with it in the meantime or the
+   *  settings changed underneath it. */
+  function finalizeDeferredCollapse(el, st) {
+    st.pendingCollapse = false;
+    if (!config.extensionEnabled || !el.isConnected) return;
+    if (st.interacted) return; // the user engaged with it — leave the label, never yank it
+    if (st.decidedKey !== currentDecisionKey()) { evaluatePost(el); return; }
+    if (!st.decision || !st.decision.shouldHide) return;
+    collapseNow(el, st.decision);
+  }
+
+  /**
+   * Schedule batch dispatch. `immediate` skips the micro-batch delay for a
+   * post already in the reading zone — nothing to gain by making the AI call
+   * for something the user can see right now wait behind the normal window.
+   */
+  function scheduleBatchFlush(immediate) {
+    // Dispatch the moment a full batch is queued (or a reading-zone post
+    // arrives): waiting out the micro-batch window would only add latency.
+    if (immediate || candidateQueue.length >= MAX_BATCH_SIZE) {
+      if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+      flushBatch();
+      return;
+    }
     if (batchTimer) return;
     batchTimer = setTimeout(flushBatch, BATCH_INTERVAL_MS);
   }
 
   function sendBatch(payload) {
-    return Promise.race([
-      chrome.runtime.sendMessage({ action: 'EVALUATE_BATCH', items: payload }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), RESPONSE_TIMEOUT_MS))
-    ]);
+    // Explicit timer cleanup: inside Promise.race the losing timer would keep
+    // firing (and pin its timeout handle) long after a successful response.
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout')), RESPONSE_TIMEOUT_MS);
+      chrome.runtime.sendMessage({ action: 'EVALUATE_BATCH', items: payload }).then(
+        (res) => { clearTimeout(timer); resolve(res); },
+        (err) => { clearTimeout(timer); reject(err); }
+      );
+    });
   }
 
   /**
@@ -331,15 +603,28 @@
    */
   async function flushBatch() {
     batchTimer = null;
+    // Orphaned after an extension reload/update: stop silently instead of
+    // throwing "Extension context invalidated" for every queued batch.
+    if (!isContextAlive()) { shutdown(); return; }
     if (candidateQueue.length === 0) return;
+
+    // Reading-zone candidates go out first when a batch has to be split —
+    // what the user can see right now outranks look-ahead prefetch.
+    if (candidateQueue.length > MAX_BATCH_SIZE) {
+      candidateQueue.sort((a, b) => (b.state.inReadingZone ? 1 : 0) - (a.state.inReadingZone ? 1 : 0));
+    }
 
     const currentBatch = candidateQueue.splice(0, MAX_BATCH_SIZE);
     if (candidateQueue.length > 0) scheduleBatchFlush(); // pipeline next batch now
 
+    // Clip BEFORE the bridge: the decision hash was computed from the full
+    // text, so the cache key is unaffected, but long posts (and duplicate
+    // copies of the same content within one batch) are no longer serialized
+    // in full across the messaging boundary.
     const payload = currentBatch.map(c => ({
       id: c.state.uid,
       hash: c.data.hash,
-      text: c.data.text,
+      text: JevFB.clipPostText(c.data.text),
       author: c.data.author
     }));
 
@@ -348,6 +633,9 @@
       const res = await sendBatch(payload);
       if (Array.isArray(res)) decisions = res;
     } catch (err) {
+      // Context died mid-flight (reload between the guard above and the
+      // response): an expected lifecycle event, not an error worth logging.
+      if (!isContextAlive()) { shutdown(); return; }
       console.warn('[JevFB] Lỗi gửi batch:', err && err.message);
     }
     const byId = new Map(decisions.map(d => [d.id, d]));
@@ -371,7 +659,6 @@
     // No usable decision (API error / not configured / worker gone): show the
     // post, keep it undecided so it is retried later (silently — already seen).
     if (!decision || decision.error || decision.skipped) {
-      st.seen = true;
       if (el.dataset.jevStatus === 'analyzing') delete el.dataset.jevStatus;
       return;
     }
@@ -379,7 +666,6 @@
     // Settings changed while in flight — the refresh skipped this pending post, re-run it
     if (key !== currentDecisionKey()) {
       if (el.dataset.jevStatus === 'analyzing') delete el.dataset.jevStatus;
-      st.seen = true;
       evaluatePost(el);
       return;
     }
@@ -390,23 +676,27 @@
     st.decision = decision;
 
     if (decision.shouldHide) {
-      JevFB.hidePost(el, decision, { hideMode: config.hideMode, criteria: config.filterCriteria, lang: config.language });
+      applyHideDecision(el, st);
     } else {
       markSafeInDom(el);
-      st.seen = true;
     }
     st.sig = signatureOf(el);
     reportHiddenCount();
   }
 
   function markSafeInDom(el) {
-    if (el.dataset.jevStatus === 'hidden') JevFB.unhidePost(el);
+    // Not `dataset.jevStatus === 'hidden'`: a re-check of an already-hidden
+    // post sets 'analyzing' while its new verdict is pending (see
+    // evaluatePost), so by the time a "safe" verdict lands here the status
+    // may no longer read 'hidden' even though the banner/blur is still on
+    // screen. Check for the actual leftover artifact instead.
+    if (el.dataset.jevRemoved || el.querySelector(':scope > .jev-ui')) JevFB.unhidePost(el);
     delete el.dataset.jevHideMode;
     el.dataset.jevStatus = 'safe';
   }
 
   /**
-   * "Ẩn nhầm" clicked on a banner: show the post (and every copy of the same
+   * "Không phải spam" clicked: show the post (and every copy of the same
    * content in this tab) and tell the worker to never hide it again.
    */
   JevFB.onMarkSafe = function(postEl) {
@@ -418,6 +708,7 @@
       const other = postState.get(el);
       if (!other || other.hash !== hash) return;
       other.decision = override;
+      other.pendingCollapse = false;
       markSafeInDom(el);
       other.sig = signatureOf(el);
     });
@@ -427,14 +718,36 @@
     } catch (_) {}
   };
 
+  /** The user tapped "Collapse" on a soft-labeled post: finalize right away
+   *  instead of waiting for it to scroll out of the reading zone. */
+  JevFB.onForceCollapse = function(postEl) {
+    const st = postState.get(postEl);
+    if (!st || !st.decision || !st.decision.shouldHide) return;
+    st.pendingCollapse = false;
+    collapseNow(postEl, st.decision);
+  };
+
+  /** The user tapped "Show now" on the pre-decision waiting blur (strict
+   *  mode): stop waiting, and treat it like any other interaction — this
+   *  post never gets auto-collapsed out from under them for this view. */
+  JevFB.onSkipWait = function(postEl) {
+    const st = postState.get(postEl);
+    if (st) st.interacted = true;
+    JevFB.clearAnalyzingState(postEl);
+  };
+
   /**
-   * Register an element with the IntersectionObserver (idempotent)
+   * Register an element with the IntersectionObservers (idempotent)
    * @param {HTMLElement} el
    */
   function registerPostElement(el) {
-    if (!el || tracked.has(el) || !viewportObserver) return;
+    // Belt: getAllPosts() already skips Messenger surfaces, but never track a
+    // chat element no matter which caller resolved it.
+    if (!el || tracked.has(el) || !viewportObserver || JevFB.isInChat(el)) return;
     tracked.add(el);
     viewportObserver.observe(el);
+    readingZoneObserver.observe(el);
+    el.addEventListener('click', onPostInteraction, { capture: true, passive: true });
   }
 
   // 4. Page scanning — observes document.body so it keeps working across
@@ -442,15 +755,31 @@
   let scanTimer = null;
   let lastVisibleRecheck = 0;
   let recheckTimer = null;
+  // Set by the MutationObserver (and page show/visibility restore). While
+  // false, scanPage skips the full getAllPosts() registration walk — the
+  // heartbeats then only prune and run the (already throttled) visible
+  // re-check, cutting the steady-state main-thread cost of an open-but-idle
+  // Facebook tab. In-place content swaps emit NO childList mutation, which is
+  // exactly why the visible re-check below must stay unconditional.
+  let domDirty = true;
+  let lastFullScanAt = 0;
 
   /** Extension reloaded/updated: this copy is orphaned — stop all work. */
   function isContextAlive() {
     try { return !!(chrome.runtime && chrome.runtime.id); } catch (_) { return false; }
   }
 
+  /** Messenger full-page route (/messages/t/...) — no feed posts live here. */
+  function isMessengerRoute() {
+    return window.location.pathname.startsWith('/messages');
+  }
+
   function shutdown() {
     if (mutationObserver) mutationObserver.disconnect();
     if (viewportObserver) viewportObserver.disconnect();
+    if (readingZoneObserver) readingZoneObserver.disconnect();
+    window.removeEventListener('scroll', onScroll);
+    if ('onscrollend' in window) window.removeEventListener('scrollend', onScrollEnd);
     clearInterval(heartbeatTimer);
     candidateQueue.length = 0;
   }
@@ -472,16 +801,26 @@
         tracked.delete(el);
         visible.delete(el);
         viewportObserver.unobserve(el);
+        readingZoneObserver.unobserve(el);
         pruned = true;
       }
     });
     if (pruned) reportHiddenCount();
 
-    JevFB.getAllPosts().forEach(registerPostElement);
+    const now = Date.now();
+    // Braces: Messenger full-page routes hold no feed posts at all — skip the
+    // registration walk there entirely (checked per scan: Facebook is an SPA).
+    // Chat tab overlays on other routes are filtered per-element by isInChat.
+    if (!isMessengerRoute() && (domDirty || now - lastFullScanAt >= FULL_RESCAN_MS)) {
+      domDirty = false;
+      lastFullScanAt = now;
+      JevFB.getAllPosts().forEach(registerPostElement);
+    }
 
     // Facebook may swap a visible post's content in place (no intersection
-    // change) — re-check visible posts at a bounded rate.
-    const now = Date.now();
+    // change, no childList mutation) — re-check visible posts at a bounded
+    // rate. UNCONDITIONAL on purpose: it is the only pickup path for changes
+    // the MutationObserver cannot see (see `domDirty` above).
     const sinceLast = now - lastVisibleRecheck;
     if (sinceLast >= VISIBLE_RECHECK_MS) {
       lastVisibleRecheck = now;
@@ -524,8 +863,13 @@
       if (!config.extensionEnabled) return;
       for (const m of mutations) {
         if (addsForeignElement(m)) {
+          domDirty = true;
           scheduleScan();
           return;
+        }
+        if (m.removedNodes && m.removedNodes.length > 0) {
+          scheduleScan(); // prune detached nodes; scanScan is coalesced
+          continue; // a LATER record in this batch may still insert posts
         }
       }
     });
@@ -536,8 +880,8 @@
     }, HEARTBEAT_MS);
     // Tab restored from background / bfcache: re-check what is on screen now
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') scheduleScan();
+      if (document.visibilityState === 'visible') { domDirty = true; scheduleScan(); }
     });
-    window.addEventListener('pageshow', scheduleScan);
+    window.addEventListener('pageshow', () => { domDirty = true; scheduleScan(); });
   }
 })();

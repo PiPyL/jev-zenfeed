@@ -99,31 +99,101 @@ renderBadge();
 chrome.tabs?.onRemoved?.addListener((tabId) => tabHidden.delete(tabId));
 
 // ==================== STATISTICS ====================
-// Deltas accumulate in memory and are flushed through a serialized chain, so
-// concurrent batches (multiple tabs) never lose counts.
+// Cumulative lifetime counters, written to BOTH storage areas:
+//  - storage.session every second: session writes are NOT broadcast to
+//    content scripts (unlike storage.local — see decision-cache.js's note),
+//    so the popup gets live numbers without waking every Facebook tab;
+//  - a snapshot folded into storage.local every 30s so the totals survive
+//    browser restarts. After a snapshot the session counters reset, and the
+//    popup displays local + session (past runs + current run).
+// All writes go through ONE serialized chain, so a session flush and the
+// local snapshot never interleave and lose deltas. MV3 may kill the worker
+// before the 30s timer fires (e.g. browser closed): the counters accumulated
+// in the last <=30s then live on only in storage.session until the next run.
 
-const statsDelta = { scanned: 0, hidden: 0, cacheHits: 0 };
-let statsTimer = null;
+const EMPTY_STATS = { scanned: 0, hidden: 0, cacheHits: 0, deferred: 0 };
+const statsDelta = { ...EMPTY_STATS };
+let sessionStatsTimer = null;
+let localStatsTimer = null;
 let statsChain = Promise.resolve();
 
-function recordStats(scanned, hidden, cacheHits) {
+function enqueueStats(fn) {
+  statsChain = statsChain.then(fn).catch(console.error);
+  return statsChain;
+}
+
+function recordStats(scanned, hidden, cacheHits, deferred = 0) {
   statsDelta.scanned += scanned;
   statsDelta.hidden += hidden;
   statsDelta.cacheHits += cacheHits;
-  if (statsTimer) return;
-  statsTimer = setTimeout(() => {
-    statsTimer = null;
-    const delta = { ...statsDelta };
-    statsDelta.scanned = statsDelta.hidden = statsDelta.cacheHits = 0;
-    statsChain = statsChain.then(async () => {
-      const data = await chrome.storage.local.get('stats');
-      const stats = data.stats || { scanned: 0, hidden: 0, cacheHits: 0 };
-      stats.scanned += delta.scanned;
-      stats.hidden += delta.hidden;
-      stats.cacheHits += delta.cacheHits;
-      await chrome.storage.local.set({ stats });
-    }).catch(console.error);
-  }, 1000);
+  statsDelta.deferred += deferred;
+  if (!sessionStatsTimer) sessionStatsTimer = setTimeout(flushSessionStats, 1000);
+  if (!localStatsTimer) localStatsTimer = setTimeout(flushLocalStats, 30000);
+}
+
+/** Fold the pending delta into a stats object (mutates it). */
+function takeDelta(stats) {
+  stats.scanned += statsDelta.scanned;
+  // A "not spam" click can reverse a hide whose +1 already went out with an
+  // earlier flush — never persist a negative counter.
+  stats.hidden = Math.max(0, stats.hidden + statsDelta.hidden);
+  stats.cacheHits += statsDelta.cacheHits;
+  stats.deferred = (stats.deferred || 0) + statsDelta.deferred;
+  statsDelta.scanned = statsDelta.hidden = statsDelta.cacheHits = statsDelta.deferred = 0;
+}
+
+function writeSessionStats() {
+  return enqueueStats(async () => {
+    const data = await chrome.storage.session.get('stats');
+    const stats = { ...EMPTY_STATS, ...(data.stats || {}) };
+    takeDelta(stats);
+    await chrome.storage.session.set({ stats });
+  });
+}
+
+function snapshotLocalStats() {
+  return enqueueStats(async () => {
+    const [sess, loc] = await Promise.all([
+      chrome.storage.session.get('stats'),
+      chrome.storage.local.get('stats')
+    ]);
+    if (!sess.stats) return;
+    const stats = { ...EMPTY_STATS, ...(loc.stats || {}) };
+    stats.scanned += sess.stats.scanned || 0;
+    stats.hidden += sess.stats.hidden || 0;
+    stats.cacheHits += sess.stats.cacheHits || 0;
+    stats.deferred = (stats.deferred || 0) + (sess.stats.deferred || 0);
+    await chrome.storage.local.set({ stats });
+    // Session restarts from zero: the popup sums local + session.
+    await chrome.storage.session.set({ stats: { ...EMPTY_STATS } });
+  });
+}
+
+function flushSessionStats() {
+  sessionStatsTimer = null;
+  writeSessionStats();
+}
+
+function flushLocalStats() {
+  localStatsTimer = null;
+  snapshotLocalStats();
+}
+
+/** Test hook: force the persistent snapshot through the same chain. */
+export function __flushStatsForTest() {
+  return snapshotLocalStats();
+}
+
+/**
+ * UX_METRIC: how many times the content script chose NOT to collapse a
+ * violating post while it was in the user's reading zone (see content.js
+ * `applyHideDecision`) — i.e. how many feed-jank moments were avoided. Folded
+ * into the same debounced `stats` write as everything else, never written
+ * directly from the content script (see decision-cache.js's own note on why
+ * storage.local writes from a tab broadcast to every other Facebook tab).
+ */
+function recordDeferred(n) {
+  if (Number.isInteger(n) && n > 0) recordStats(0, 0, 0, n);
 }
 
 // ==================== THROTTLED WARNINGS ====================
@@ -191,6 +261,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       markSafe(message, sender).then(sendResponse, () => sendResponse({ success: false }));
       return true;
 
+    case 'UX_METRIC':
+      recordDeferred(message.deferred);
+      return false;
+
     case 'TAB_STATUS':
       if (sender.tab && Number.isInteger(message.hidden) && message.hidden >= 0) {
         tabHidden.set(sender.tab.id, message.hidden);
@@ -221,7 +295,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ==================== USER FEEDBACK ====================
 
-const criteriaKeyHash = () => simpleHash(criteriaFingerprint(settings.filterCriteria));
+const criteriaKeyHash = () => simpleHash(criteriaFingerprint(settings.filterCriteria, settings.whitelistCriteria));
 
 /**
  * "Ẩn nhầm": the user says this content must not be hidden under the current
@@ -324,7 +398,7 @@ async function handleBatchEvaluation(items) {
     const startedAt = Date.now();
     const apiPromise = Date.now() < apiCooldownUntil
       ? Promise.resolve(sending.map(it => ({ id: it.id, error: true })))
-      : evaluateWithJev(config.apiKey, config.apiUrl, sending, config.filterCriteria, threshold)
+      : evaluateWithJev(config.apiKey, config.apiUrl, sending, config.filterCriteria, threshold, config.whitelistCriteria)
         .then((results) => {
           logApiBatch(results, sending, threshold, Date.now() - startedAt);
           return results;

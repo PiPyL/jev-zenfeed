@@ -12,15 +12,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   const advancedSettings = document.getElementById('advancedSettings');
   const apiUrlInput = document.getElementById('apiUrl');
   const filterCriteriaInput = document.getElementById('filterCriteria');
+  const whitelistCriteriaInput = document.getElementById('whitelistCriteria');
   const criteriaStatus = document.getElementById('criteriaStatus');
   const btnApplyCriteria = document.getElementById('btnApplyCriteria');
   const confidenceSlider = document.getElementById('confidenceThreshold');
-  const thresholdDisplay = document.getElementById('thresholdDisplay');
   const hideModeSelect = document.getElementById('hideMode');
-  const antiFoucBlurCheckbox = document.getElementById('antiFoucBlur');
+  const blurCustomizationGroup = document.getElementById('blurCustomizationGroup');
+  const blurPresetSelect = document.getElementById('blurPreset');
+  const blurFlashcardTopicRow = document.getElementById('blurFlashcardTopicRow');
+  const blurFlashcardTopicSelect = document.getElementById('blurFlashcardTopic');
+  const blurRevealFrictionSelect = document.getElementById('blurRevealFriction');
+  const blurCustomQuotesRow = document.getElementById('blurCustomQuotesRow');
+  const blurCustomQuotesInput = document.getElementById('blurCustomQuotes');
+  const filterModeSelect = document.getElementById('filterMode');
   const statScanned = document.getElementById('statScanned');
   const statHidden = document.getElementById('statHidden');
   const statCacheHit = document.getElementById('statCacheHit');
+  const statDeferred = document.getElementById('statDeferred');
   const btnClearCache = document.getElementById('btnClearCache');
   const saveToast = document.getElementById('saveToast');
   const presetChips = document.querySelectorAll('.chip');
@@ -45,7 +53,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const { SUPPORTED_LANGUAGES, t: translate, normalizeLanguage } = window.JevFB;
   const defaults = {
     ...DEFAULT_SETTINGS,
-    stats: { scanned: 0, hidden: 0, cacheHits: 0 }
+    stats: { scanned: 0, hidden: 0, cacheHits: 0, deferred: 0 }
   };
 
   let currentLang = DEFAULT_SETTINGS.language;
@@ -96,7 +104,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     toggleFilterLabel.title = t('toggleFilterTitle');
     btnClearCacheTitleRefresh();
     btnCopyLogs.title = t('btnCopyLogsTitle');
+    btnCopyLogs.setAttribute('aria-label', t('btnCopyLogsTitle'));
     btnClearLogs.title = t('btnClearLogsTitle');
+    btnClearLogs.setAttribute('aria-label', t('btnClearLogsTitle'));
     updateToggleKeyIcon();
     btnToggleAdvanced.textContent = advancedSettings.classList.contains('hidden') ? t('btnToggleAdvancedShow') : t('btnToggleAdvancedHide');
     applyPresetChips();
@@ -148,6 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   let savedCriteria = DEFAULT_SETTINGS.filterCriteria;
+  let savedWhitelist = DEFAULT_SETTINGS.whitelistCriteria || '';
   let savedApiKey = '';
   let savedApiUrl = DEFAULT_SETTINGS.apiUrl;
 
@@ -159,20 +170,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     apiKeyInput.value = data.apiKey || '';
     apiUrlInput.value = data.apiUrl || DEFAULT_SETTINGS.apiUrl;
     confidenceSlider.value = data.confidenceThreshold;
-    thresholdDisplay.textContent = `${data.confidenceThreshold}%`;
     hideModeSelect.value = data.hideMode;
-    antiFoucBlurCheckbox.checked = data.antiFoucBlur;
+    if (filterModeSelect) filterModeSelect.value = data.filterMode;
+    if (blurPresetSelect) blurPresetSelect.value = data.blurPreset || DEFAULT_SETTINGS.blurPreset || 'zen';
+    if (blurFlashcardTopicSelect) blurFlashcardTopicSelect.value = data.blurFlashcardTopic || DEFAULT_SETTINGS.blurFlashcardTopic || 'ielts';
+    if (blurRevealFrictionSelect) blurRevealFrictionSelect.value = data.blurRevealFriction || DEFAULT_SETTINGS.blurRevealFriction || 'instant';
+    if (blurCustomQuotesInput) blurCustomQuotesInput.value = data.blurCustomQuotes || '';
+    updateBlurCustomizationVisibility();
 
     savedCriteria = data.filterCriteria;
+    savedWhitelist = data.whitelistCriteria || '';
     savedApiKey = apiKeyInput.value.trim();
     savedApiUrl = apiUrlInput.value.trim();
     const draft = readDraft();
     filterCriteriaInput.value = draft != null ? draft : data.filterCriteria;
+    if (whitelistCriteriaInput) whitelistCriteriaInput.value = data.whitelistCriteria || '';
 
     applyI18n();
     updateCriteriaState();
     updateKeyWarningState();
     updateStatsDisplay(data.stats);
+    mergeSessionStats();
 
     if (data.apiKey) {
       setApiBadge('badgeSaved', 'badge badge-success');
@@ -215,10 +233,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     const scanned = stats.scanned || 0;
     const hidden = Math.max(0, stats.hidden || 0);
     const cacheHits = stats.cacheHits || 0;
+    const deferred = Math.max(0, stats.deferred || 0);
     statScanned.textContent = scanned.toLocaleString();
     statHidden.textContent = hidden.toLocaleString();
     const hitRate = scanned > 0 ? Math.round((cacheHits / scanned) * 100) : 0;
     statCacheHit.textContent = `${hitRate}%`;
+    statDeferred.textContent = deferred.toLocaleString();
+  }
+
+  // Stats live in TWO layers (see background.js): storage.session holds the
+  // current run's counters (session writes never broadcast to Facebook tabs)
+  // and storage.local a snapshot folded in every 30s so totals survive
+  // restarts. The displayed lifetime value = local + session.
+  function mergeSessionStats() {
+    chrome.storage.session.get('stats', (sess) => {
+      const s = (sess && sess.stats) || {};
+      chrome.storage.local.get('stats', (loc) => updateStatsDisplay({
+        scanned: (s.scanned || 0) + ((loc.stats && loc.stats.scanned) || 0),
+        hidden: (s.hidden || 0) + ((loc.stats && loc.stats.hidden) || 0),
+        cacheHits: (s.cacheHits || 0) + ((loc.stats && loc.stats.cacheHits) || 0),
+        deferred: (s.deferred || 0) + ((loc.stats && loc.stats.deferred) || 0)
+      }));
+    });
   }
 
   // On/off switch, threshold, display mode, blur: take effect immediately
@@ -234,8 +270,60 @@ document.addEventListener('DOMContentLoaded', async () => {
     save({ confidenceThreshold: parseInt(confidenceSlider.value, 10) });
   });
 
-  hideModeSelect.addEventListener('change', () => save({ hideMode: hideModeSelect.value }));
-  antiFoucBlurCheckbox.addEventListener('change', () => save({ antiFoucBlur: antiFoucBlurCheckbox.checked }));
+  function updateBlurCustomizationVisibility() {
+    const isBlur = hideModeSelect.value === 'blur';
+    if (blurCustomizationGroup) {
+      blurCustomizationGroup.classList.toggle('hidden', !isBlur);
+    }
+    if (isBlur && blurPresetSelect) {
+      if (blurFlashcardTopicRow) {
+        blurFlashcardTopicRow.classList.toggle('hidden', blurPresetSelect.value !== 'flashcard');
+      }
+      if (blurCustomQuotesRow) {
+        blurCustomQuotesRow.classList.toggle('hidden', blurPresetSelect.value !== 'zen');
+      }
+    }
+  }
+
+  hideModeSelect.addEventListener('change', () => {
+    save({ hideMode: hideModeSelect.value });
+    updateBlurCustomizationVisibility();
+  });
+
+  if (blurPresetSelect) {
+    blurPresetSelect.addEventListener('change', () => {
+      save({ blurPreset: blurPresetSelect.value });
+      updateBlurCustomizationVisibility();
+    });
+  }
+
+  if (blurFlashcardTopicSelect) {
+    blurFlashcardTopicSelect.addEventListener('change', () => {
+      save({ blurFlashcardTopic: blurFlashcardTopicSelect.value });
+    });
+  }
+
+  if (blurRevealFrictionSelect) {
+    blurRevealFrictionSelect.addEventListener('change', () => {
+      save({ blurRevealFriction: blurRevealFrictionSelect.value });
+    });
+  }
+
+  if (blurCustomQuotesInput) {
+    let customQuotesTimeout = null;
+    blurCustomQuotesInput.addEventListener('input', () => {
+      clearTimeout(customQuotesTimeout);
+      customQuotesTimeout = setTimeout(() => {
+        save({ blurCustomQuotes: blurCustomQuotesInput.value.trim() });
+      }, 400);
+    });
+    blurCustomQuotesInput.addEventListener('change', () => {
+      clearTimeout(customQuotesTimeout);
+      save({ blurCustomQuotes: blurCustomQuotesInput.value.trim() });
+    });
+  }
+
+  if (filterModeSelect) filterModeSelect.addEventListener('change', () => save({ filterMode: filterModeSelect.value }));
 
   // ==================== CRITERIA ====================
   // NOT saved on every keystroke: each saved criteria re-evaluates the posts
@@ -243,7 +331,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // explicitly (button / Ctrl+Enter); the draft is kept if the popup closes.
 
   function isCriteriaDirty() {
-    return criteriaFingerprint(filterCriteriaInput.value) !== criteriaFingerprint(savedCriteria);
+    const critVal = filterCriteriaInput.value;
+    const wlVal = whitelistCriteriaInput ? whitelistCriteriaInput.value : '';
+    return criteriaFingerprint(critVal, wlVal) !== criteriaFingerprint(savedCriteria, savedWhitelist);
   }
 
   function updateCriteriaStatusText() {
@@ -262,8 +352,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function applyCriteria() {
     if (!isCriteriaDirty()) return;
     const value = filterCriteriaInput.value.trim();
-    if (await save({ filterCriteria: value }, t('toastCriteriaApplied'))) {
+    const wlValue = whitelistCriteriaInput ? whitelistCriteriaInput.value.trim() : '';
+    if (await save({ filterCriteria: value, whitelistCriteria: wlValue }, t('toastCriteriaApplied'))) {
       savedCriteria = value;
+      savedWhitelist = wlValue;
       updateCriteriaState();
     }
   }
@@ -275,6 +367,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       applyCriteria();
     }
   });
+  if (whitelistCriteriaInput) {
+    whitelistCriteriaInput.addEventListener('input', updateCriteriaState);
+    whitelistCriteriaInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        applyCriteria();
+      }
+    });
+  }
   btnApplyCriteria.addEventListener('click', applyCriteria);
 
   // Preset chips toggle: click adds the preset, click again removes it
@@ -568,10 +669,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const text = cachedLogs.map(l => `[${l.time}] [${l.tag}] ${l.message}`).join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      const textEl = btnCopyLogs.querySelector('.btn-text') || btnCopyLogs;
-      const originalText = textEl.textContent;
-      textEl.textContent = t('toastCopied');
-      setTimeout(() => { textEl.textContent = originalText; }, 1800);
+      btnCopyLogs.classList.add('copied');
+      showToast(t('toastCopied'));
+      setTimeout(() => { btnCopyLogs.classList.remove('copied'); }, 1500);
     } catch (_) {
       console.warn('Clipboard write failed');
     }
@@ -591,10 +691,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Live statistics
+  // Live statistics: a change in either layer re-merges the sum
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.stats && changes.stats.newValue) {
-      updateStatsDisplay(changes.stats.newValue);
+    if ((area === 'local' || area === 'session') && changes.stats) {
+      mergeSessionStats();
     }
   });
 

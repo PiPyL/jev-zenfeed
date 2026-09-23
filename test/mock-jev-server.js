@@ -16,7 +16,7 @@ const VIOLATION_KEYWORDS = [
   'spoiler', 'cốt truyện', 'kết phim', 'lộ nội dung',
   'tiền ảo', 'crypto', 'coin', 'làm giàu nhanh', 'đa cấp',
   'bóc phốt', 'drama', 'giật gân', 'showbiz',
-  'cho thuê', 'thuê nhà', 'căn hộ', 'văn phòng', 'bán nhà', 'bất động sản'
+  'cho thuê', 'thuê nhà', 'căn hộ', 'văn phòng', 'bán nhà', 'bất động sản', 'đất nền'
 ];
 
 const server = http.createServer((req, res) => {
@@ -73,16 +73,28 @@ const server = http.createServer((req, res) => {
         requestStats.postsReceived += Object.keys(questions).length;
         requestStats.lastBody = body;
 
+        const TECH_KEYWORDS = ['it', 'ai', 'lập trình', 'developer', 'react', 'python', 'javascript', 'công nghệ', 'software', 'kỹ sư'];
+        const RECRUIT_KEYWORDS = ['tuyển dụng', 'tuyển nhân viên', 'tìm việc', 'hiring', 'tuyển'];
+
         for (const [id, q] of Object.entries(questions)) {
-          // Check state.posts[id].content (TypeSafe standard) first, then fallback to instruction match
-          const stateContent = payload.state?.posts?.[id]?.content || '';
+          // Resolve postId if question uses atomic key (e.g. post_1__violate)
+          const postId = id.includes('__') ? id.split('__')[0] : id;
+          const stateContent = payload.state?.posts?.[postId]?.content || payload.state?.posts?.[id]?.content || '';
           const raw = (q.instructions || '');
           const contentMatch = raw.match(/Content:\s*["']?(.*?)["']?$/i) || raw.match(/Nội dung:\s*["']?(.*?)["']?$/i);
           const postText = (stateContent || (contentMatch ? contentMatch[1] : raw)).toLowerCase();
           // Test hook: simulate the API silently omitting an answer
           if (postText.includes('__no_answer__')) continue;
-          const isViolation = VIOLATION_KEYWORDS.some(kw => postText.includes(kw));
-          const prob = isViolation ? 0.94 : 0.05;
+
+          let prob = 0.05;
+          if (id.endsWith('__whitelist')) {
+            const isMatch = TECH_KEYWORDS.some(kw => postText.includes(kw));
+            prob = isMatch ? 0.96 : 0.04;
+          } else {
+            const allViolations = VIOLATION_KEYWORDS.concat(RECRUIT_KEYWORDS);
+            const isViolation = allViolations.some(kw => postText.includes(kw));
+            prob = isViolation ? 0.94 : 0.05;
+          }
 
           answers[id] = {
             type: 'noul',

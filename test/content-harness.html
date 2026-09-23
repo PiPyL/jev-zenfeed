@@ -20,34 +20,51 @@
 </head>
 <body>
   <div id="results"><b>Jev content harness</b><div id="log"></div></div>
+  <!-- Pushes every post below the fold by default, so all existing assertions
+       (immediate banner collapse) still describe an off-screen post — matching
+       the "reading zone" contract in content.js. Reading-zone-specific tests
+       below scroll individual posts into view explicitly. Sized in JS (below)
+       as a fraction of the actual viewport height: tall enough to clear the
+       reading zone (top ~65%), short enough to stay within the default
+       look-ahead/prefetch reach (~2x viewport) so posts are still evaluated
+       on load, whatever the real window size turns out to be. -->
+  <div id="spacer"></div>
   <div role="main" id="main"></div>
 
   <script>
     // ==================== Fake chrome.* ====================
     const store = {
       extensionEnabled: true, filterCriteria: 'cá độ', confidenceThreshold: 70,
-      hideMode: 'banner', antiFoucBlur: true, apiKey: 'secret-key', apiUrl: 'http://localhost:3000'
+      hideMode: 'banner', filterMode: 'smooth', apiKey: 'secret-key', apiUrl: 'http://localhost:3000'
     };
     const changeListeners = [];
     const requestedKeys = new Set();
     const calls = [];                 // every EVALUATE_BATCH payload
     const messages = [];              // every other runtime message
     let backendMode = 'ok';           // 'ok' | 'error'
+    let backendDelayMs = 60;          // bumped for the strict-mode "pending" test below
 
     function backend(items) {
       calls.push(items);
       const crit = String(store.filterCriteria || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
-      return new Promise(resolve => setTimeout(() => resolve(items.map(i => {
-        if (backendMode === 'error') return { id: i.id, shouldHide: false, confidence: 0, error: true };
-        const hit = crit.some(c => i.text.toLowerCase().includes(c));
-        return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3 };
-      })), 60));
+      return new Promise((resolve, reject) => setTimeout(() => {
+        // Real Chrome rejects in-flight messages when the extension context dies.
+        if (!chrome.runtime.id) { reject(new Error('Extension context invalidated.')); return; }
+        resolve(items.map(i => {
+          if (backendMode === 'error') return { id: i.id, shouldHide: false, confidence: 0, error: true };
+          const hit = crit.some(c => i.text.toLowerCase().includes(c));
+          return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3 };
+        }));
+      }, backendDelayMs));
     }
 
     window.chrome = {
       runtime: {
         id: 'harness',
         sendMessage(msg) {
+          // Real Chrome throws synchronously when an orphaned content script
+          // (extension reloaded/updated) touches chrome.runtime.
+          if (!chrome.runtime.id) throw new Error('Extension context invalidated.');
           if (msg.action === 'EVALUATE_BATCH') return backend(msg.items);
           messages.push(msg);
           return Promise.resolve();
@@ -71,6 +88,15 @@
         onChanged: { addListener(l) { changeListeners.push(l); } }
       }
     };
+
+    // Between the reading zone (65% of viewport) and the default prefetch
+    // reach (viewport + 100%) for ANY viewport size — see the comment on
+    // #spacer above.
+    document.getElementById('spacer').style.height = `${Math.round((window.innerHeight || 800) * 0.9)}px`;
+    // Guarantees a large scrollable range from the very start, independent of
+    // how much test content has been appended so far — used below to force
+    // the adaptive prefetch margin to its widest bucket in one early scroll.
+    document.body.style.minHeight = '8000px';
 
     // ==================== Fake Facebook DOM ====================
     function postHTML({ author, body, comments = [], useMarker = true }) {
@@ -108,6 +134,9 @@
   <script src="../src/utils/settings-defaults.js"></script>
   <script src="../src/utils/i18n.js"></script>
   <script src="../src/utils/fast-hash.js"></script>
+  <script src="../src/utils/clip-text.js"></script>
+  <script src="../src/utils/zen-data.js"></script>
+  <script src="../src/utils/flashcards-data.js"></script>
   <script src="../src/content/fb-selectors.js"></script>
   <script src="../src/content/text-extractor.js"></script>
   <script src="../src/content/ui-overlay.js"></script>
@@ -122,6 +151,21 @@
     const isCollapsed = (id) => $(id).classList.contains('jev-post-collapsed');
     const bannerOf = (id) => $(id).querySelector(':scope > .jev-banner');
     const allItems = () => calls.flat();
+    // Scroll an element into the "reading zone" (top of viewport) / back out
+    // of it (to the empty spacer at the very top of the page).
+    const showInReadingZone = (el) => window.scrollTo(0, window.scrollY + el.getBoundingClientRect().top - 20);
+    const scrollAway = () => window.scrollTo(0, 0);
+    // Poll instead of a fixed sleep for anything racing a mocked network
+    // delay or the scan/registration throttle — keeps the suite reliable
+    // regardless of how fast/slow the host happens to run right now.
+    async function waitFor(predicate, timeoutMs = 3000, stepMs = 25) {
+      const start = performance.now();
+      while (performance.now() - start < timeoutMs) {
+        if (predicate()) return true;
+        await sleep(stepMs);
+      }
+      return !!predicate();
+    }
 
     function check(name, cond, detail = '') {
       const line = document.createElement('div');
@@ -131,6 +175,16 @@
     }
 
     async function run() {
+      // Force the adaptive prefetch margin (content.js) to its widest bucket
+      // up front, so every post appended later in this long-running test
+      // stays within the AI look-ahead reach no matter how much content piles
+      // up above it. The reading-zone cutoff used by the hide-decision matrix
+      // is independent of this margin and stays fixed regardless.
+      window.scrollTo(0, 1);
+      await sleep(150);
+      window.scrollTo(0, 6000);
+      await sleep(150);
+      window.scrollTo(0, 0);
       await sleep(700);
 
       // --- Initial evaluation ---
@@ -172,6 +226,8 @@
       check('Nút mở trong chế độ Blur không bị làm mờ',
         tag && getComputedStyle(tag).filter === 'none' && getComputedStyle(firstChild).filter.includes('blur'),
         tag && getComputedStyle(tag).filter);
+      check('Chế độ Blur không bóp nghẹt chiều cao post (không đổi kích thước)',
+        getComputedStyle($('A')).maxHeight === 'none');
       chrome.storage.local.set({ hideMode: 'banner' });
       await sleep(200);
 
@@ -183,14 +239,25 @@
       await sleep(600);
       check('Bật lại bộ lọc ẩn lại bài vi phạm', status('A') === 'hidden' && isCollapsed('A'));
 
-      // --- Criteria change ---
+      // --- Criteria change (also exercises the reading-zone matrix on B) ---
+      // B has been sitting off-screen and safe this whole time. Bring it into
+      // the reading zone and let it sit there past CLEAR_SEEN_MS BEFORE it
+      // becomes a violation, so the decision arrives for an "already read"
+      // post -> corner label, not a blur/collapse.
+      showInReadingZone($('B'));
+      await sleep(800);
       chrome.storage.local.set({ filterCriteria: 'công viên' });
-      await sleep(600);
+      await waitFor(() => status('A') === 'safe' && status('B') === 'hidden');
       check('Đổi tiêu chí: bài không còn khớp được hiện lại', status('A') === 'safe' && !isCollapsed('A'));
-      check('Đổi tiêu chí: bài giờ khớp bị ẩn', status('B') === 'hidden');
-      check('Kiểm tra lại bài đã xem không làm mờ lại', !$('B').classList.contains('jev-analyzing'));
+      check('Đổi tiêu chí: bài đã đọc lâu -> chỉ gắn nhãn góc, KHÔNG thu gọn/mờ ngay',
+        status('B') === 'hidden' && !isCollapsed('B') && !$('B').classList.contains('jev-blurred-post') &&
+        !!$('B').querySelector(':scope > .jev-corner-label') && !bannerOf('B'), status('B'));
+      scrollAway();
+      await waitFor(() => isCollapsed('B'));
+      check('Cuộn bài đã gắn nhãn ra khỏi màn hình sẽ thu gọn thật',
+        status('B') === 'hidden' && isCollapsed('B') && !!bannerOf('B') && !$('B').querySelector(':scope > .jev-corner-label'));
       chrome.storage.local.set({ filterCriteria: 'cá độ' });
-      await sleep(600);
+      await waitFor(() => status('A') === 'hidden' && status('B') === 'safe');
       check('Khôi phục tiêu chí', status('A') === 'hidden' && status('B') === 'safe');
 
       // --- Facebook recycles a DOM node with new content ---
@@ -204,7 +271,7 @@
         { id: 'G1', author: 'Nhóm ABC', body: 'Nhóm chuyên cá độ bóng rổ NBA' },
         { id: 'G2', author: 'Nhóm ABC', body: 'Chia sẻ lịch tập bóng rổ cuối tuần' }
       ]));
-      await sleep(900);
+      await waitFor(() => status('G1') === 'hidden' && status('G2') === 'safe');
       check('Điều hướng SPA: feed mới vẫn được lọc', status('G1') === 'hidden' && status('G2') === 'safe', `${status('G1')}/${status('G2')}`);
 
       // --- API error → no stuck blur, retried silently later ---
@@ -214,7 +281,7 @@
       unit.id = 'H';
       unit.innerHTML = postHTML({ author: 'Trang K', body: 'Tham gia cá độ ngay hôm nay' });
       feed.appendChild(unit);
-      await sleep(900);
+      await waitFor(() => !$('H').classList.contains('jev-analyzing') && status('H') !== 'analyzing');
       check('Lỗi API: bài không bị kẹt blur', !$('H').classList.contains('jev-analyzing') && status('H') !== 'analyzing');
       backendMode = 'ok';
       document.body.appendChild(document.createElement('div'));
@@ -240,6 +307,29 @@
       check('FB mới: bài an toàn không bị ẩn, bình luận không bị coi là bài',
         $('VM2').dataset.jevStatus === 'safe' && !document.querySelector('[role="article"][data-jev-status]'));
 
+      // --- Messenger chat: a shared post preview inside a message is NOT a feed post ---
+      // Regression: chat bubbles reuse the feed's ad-rendering markers, so the
+      // scanner used to classify private messages and inject the banner into
+      // the conversation. Both chat markers are covered: the MWChat pagelet
+      // (chat overlay / messages page) and role="row" (message grid row).
+      const callsBeforeChat = calls.length;
+      const chat = document.createElement('div');
+      chat.innerHTML = `<div data-pagelet="MWChat"><div role="grid" aria-label="Tin nhắn">
+        <div role="row"><div id="CHAT1"><div data-virtualized="false">
+          <div><span data-ad-rendering-role="profile_name"><a role="link">Anh Huy</a></span></div>
+          <div data-ad-rendering-role="story_message"><div dir="auto">Kèo cá độ gửi qua tin nhắn riêng tư</div></div>
+          <div><div role="button" aria-label="Thích">Thích</div></div>
+        </div></div></div></div></div>`;
+      document.getElementById('main').appendChild(chat);
+      document.body.appendChild(document.createElement('div'));
+      await sleep(1800);
+      check('Tin nhắn Messenger (bài được chia sẻ) KHÔNG bị xử lý như bài feed',
+        !$('CHAT1').dataset.jevStatus && !$('CHAT1').hasAttribute('data-jev-status') &&
+        !chat.querySelector('.jev-ui') &&
+        !allItems().some(i => i.text && i.text.includes('tin nhắn riêng tư')) &&
+        calls.length === callsBeforeChat,
+        `status=${$('CHAT1').dataset.jevStatus}, +${calls.length - callsBeforeChat} calls`);
+
       // --- Hidden post must stay stable (no blur -> hide -> blur -> hide loop) ---
       const loopWrap = document.createElement('div');
       loopWrap.innerHTML = `<div data-virtualized="false" id="VL"><div class="card">
@@ -264,6 +354,46 @@
       await sleep(4500);
       obs.disconnect();
       check('Đã bấm Xem: bài vẫn mở, không bị ẩn lại', vl.classList.contains('jev-revealed') && !isCollapsed('VL') && calls.length === callsLoop);
+
+      // --- Blur mode: a user reveal must survive Facebook's own DOM mutations ---
+      // Regression: revealing dropped the blur tag — the only .jev-ui artifact
+      // of a blur-hidden post — so the repair pass treated the artifact as
+      // "missing" and re-blurred the post the moment FB updated a timestamp.
+      chrome.storage.local.set({ hideMode: 'blur' });
+      await sleep(300);
+      const rbWrap = document.createElement('div');
+      rbWrap.innerHTML = `<div data-virtualized="false" id="RB"><div class="card">
+        <div><span data-ad-rendering-role="profile_name"><a role="link">Nhà cái R</a></span></div>
+        <div data-ad-rendering-role="story_message"><div dir="auto">Kèo cá độ cuối tuần, thưởng nạp đầu</div></div>
+        <div><div role="button" aria-label="Thích">Thích</div></div>
+      </div></div>`;
+      document.getElementById('main').appendChild(rbWrap);
+      await waitFor(() => $('RB') && $('RB').classList.contains('jev-blurred-post'), 4000);
+      check('Blur mode: bài vi phạm bị làm mờ kèm tag điều khiển',
+        status('RB') === 'hidden' && $('RB').classList.contains('jev-blurred-post') &&
+        !!$('RB').querySelector(':scope > .jev-blur-tag'), status('RB'));
+      showInReadingZone($('RB'));
+      await sleep(400);
+      $('RB').querySelector('.jev-btn-show').click();
+      check('Blur mode: bấm "Xem nội dung" mở bài',
+        $('RB').classList.contains('jev-revealed') && !$('RB').classList.contains('jev-blurred-post') &&
+        !$('RB').querySelector(':scope > .jev-blur-tag'));
+      const callsBeforeRB = calls.length;
+      // Facebook mutates the card in place (a timestamp appears): signature
+      // changes, the cached verdict still stands, the repair pass wakes up.
+      const ts = document.createElement('span');
+      ts.textContent = ' · 2 phút';
+      $('RB').querySelector('[data-ad-rendering-role="story_message"]').appendChild(ts);
+      await sleep(4500); // > 2 heartbeats, post still sitting in the reading zone
+      check('Blur mode: bài đã mở KHÔNG bị làm mờ/gắn nhãn lại khi FB tự đổi DOM',
+        $('RB').classList.contains('jev-revealed') && !$('RB').classList.contains('jev-blurred-post') &&
+        !$('RB').querySelector(':scope > .jev-blur-tag') && !$('RB').querySelector(':scope > .jev-corner-label'));
+      check('Blur mode: không gọi lại API cho bài đã mở', calls.length === callsBeforeRB, `${calls.length - callsBeforeRB} lần gọi thêm`);
+      scrollAway();
+      await sleep(400);
+      chrome.storage.local.set({ hideMode: 'banner' });
+      await sleep(300);
+
 
       // --- First screen: text revealed by a style change only (no childList mutation) ---
       const lazy = document.createElement('div');
@@ -311,6 +441,148 @@
       document.body.appendChild(document.createElement('div'));
       await sleep(1800);
       check('Bài đã báo ẩn nhầm không bị ẩn lại / gửi lại', status('G1') === 'safe' && calls.length === callsSafe);
+
+      // A generous, fixed backend delay for the rest of these tests: long
+      // enough that "still mid-flight" checks have comfortable headroom
+      // however fast/slow this machine happens to run right now, while every
+      // "wait for the eventual outcome" check below polls (waitFor) instead
+      // of sleeping a guessed duration.
+      backendDelayMs = 400;
+
+      // --- Reading zone: a FRESH violation scrolled into view is blurred in
+      // place (no collapse, no height change), never an instant banner ---
+      const fresh = document.createElement('div');
+      fresh.id = 'RZ_FRESH';
+      fresh.innerHTML = postHTML({ author: 'Trang F', body: 'Kèo cá độ tối nay siêu hot' });
+      document.querySelector('[role="feed"]').appendChild(fresh);
+      // Scroll it into place BEFORE it is ever scanned/evaluated (not after):
+      // otherwise a fast scan could decide it while still off-screen (an
+      // immediate, correct collapse — just not the scenario this test wants)
+      // and the later scroll would arrive too late to observe the fresh
+      // in-reading-zone blur this test is actually checking for.
+      showInReadingZone($('RZ_FRESH'));
+      await sleep(400); // registration (SCAN_THROTTLE_MS+idle) done; decision (backendDelayMs=400 from then) not yet
+      check('Chế độ Mượt: bài mới trong vùng đọc KHÔNG bị mờ trong lúc chờ AI',
+        !$('RZ_FRESH').classList.contains('jev-blurred-post') && !$('RZ_FRESH').querySelector(':scope > .jev-blur-tag-pending'));
+      await waitFor(() => status('RZ_FRESH') === 'hidden');
+      const freshTag = $('RZ_FRESH').querySelector(':scope > .jev-blur-tag');
+      check('Bài mới trong vùng đọc bị vi phạm -> mờ tại chỗ, KHÔNG banner ngay',
+        status('RZ_FRESH') === 'hidden' && !!freshTag && !freshTag.classList.contains('jev-blur-tag-pending') &&
+        !bannerOf('RZ_FRESH') && !isCollapsed('RZ_FRESH'), status('RZ_FRESH'));
+      // Once DECIDED as a violation, the in-place blur intentionally still
+      // blocks clicks on the illegible content underneath (same as the
+      // long-standing hideMode:'blur' behavior) — only the PRE-decision
+      // "Checking..." wait (tested below, strict mode) must never block.
+      check('Mờ SAU quyết định vẫn chặn click nội dung gốc (như chế độ Blur)',
+        getComputedStyle([...$('RZ_FRESH').children].find(c => !c.classList.contains('jev-ui'))).pointerEvents === 'none');
+      scrollAway();
+      await waitFor(() => isCollapsed('RZ_FRESH'));
+      check('Cuộn ra khỏi màn hình: mờ tại chỗ chuyển thành banner thật',
+        status('RZ_FRESH') === 'hidden' && isCollapsed('RZ_FRESH') && !!bannerOf('RZ_FRESH') &&
+        !$('RZ_FRESH').querySelector(':scope > .jev-blur-tag'));
+
+      // --- Reading zone: the user interacting with a post exempts it from
+      // ever being auto-collapsed, even fresh, even after it scrolls away ---
+      const inter = document.createElement('div');
+      inter.id = 'RZ_INTERACTED';
+      inter.innerHTML = postHTML({ author: 'Trang I', body: 'Kèo cá độ cực đỉnh hôm nay' });
+      document.querySelector('[role="feed"]').appendChild(inter);
+      showInReadingZone($('RZ_INTERACTED')); // in place before the first scan, same reason as RZ_FRESH above
+      await sleep(600); // scanned & registered (click listener attached) before we click it below
+      $('RZ_INTERACTED').querySelector('[role="toolbar"]').click(); // simulate Like, before the decision lands
+      await waitFor(() => status('RZ_INTERACTED') === 'hidden');
+      check('Đã tương tác: quyết định ẩn chỉ gắn nhãn góc dù bài còn mới',
+        status('RZ_INTERACTED') === 'hidden' && !!$('RZ_INTERACTED').querySelector(':scope > .jev-corner-label') &&
+        !$('RZ_INTERACTED').classList.contains('jev-blurred-post') && !bannerOf('RZ_INTERACTED'), status('RZ_INTERACTED'));
+      scrollAway();
+      await sleep(300); // interacted -> no auto-collapse should happen; give it a real chance to (wrongly) fire
+      check('Đã tương tác: cuộn qua vẫn KHÔNG tự thu gọn (tôn trọng người dùng)',
+        status('RZ_INTERACTED') === 'hidden' && !isCollapsed('RZ_INTERACTED') &&
+        !!$('RZ_INTERACTED').querySelector(':scope > .jev-corner-label'));
+      showInReadingZone($('RZ_INTERACTED')); // bring back to reach the "Collapse" button
+      await sleep(200);
+      const collapseBtn = $('RZ_INTERACTED').querySelector(':scope > .jev-corner-label .jev-btn-collapse');
+      check('Nút "Thu gọn" có mặt trên nhãn góc', !!collapseBtn);
+      if (collapseBtn) collapseBtn.click();
+      await waitFor(() => isCollapsed('RZ_INTERACTED'));
+      check('Bấm "Thu gọn" thu gọn ngay dù đang xem',
+        status('RZ_INTERACTED') === 'hidden' && isCollapsed('RZ_INTERACTED') && !!bannerOf('RZ_INTERACTED'));
+      scrollAway();
+      await sleep(100);
+
+      // --- Quét ngầm (Silent Scanning): hoàn toàn không làm mờ và không chèn component "Đang kiểm tra" ---
+      backendDelayMs = 500;
+      const pend = document.createElement('div');
+      pend.id = 'RZ_PENDING';
+      pend.innerHTML = postHTML({ author: 'Trang P', body: 'Kèo cá độ hot nhất tối nay' });
+      document.querySelector('[role="feed"]').appendChild(pend);
+      showInReadingZone($('RZ_PENDING')); // in place before the first scan
+      await sleep(250); // while waiting for AI decision
+      const hasPendingTag = !!$('RZ_PENDING').querySelector(':scope > .jev-blur-tag-pending');
+      const isPostBlurred = $('RZ_PENDING').classList.contains('jev-blurred-post');
+      check('Quét ngầm: bài mới trong vùng đọc KHÔNG bị mờ khi đang chờ AI', !isPostBlurred);
+      check('Quét ngầm: tuyệt đối KHÔNG chèn thẻ "Đang kiểm tra..." gây gián đoạn lướt feed', !hasPendingTag);
+      // Tương tác của người dùng trong lúc bài đang chờ AI vẫn được tôn trọng
+      $('RZ_PENDING').querySelector('[role="toolbar"]').click();
+      await waitFor(() => status('RZ_PENDING') === 'hidden');
+      check('Tương tác trong lúc quét: quyết định ẩn chỉ gắn nhãn góc (không giật bài đang xem)',
+        status('RZ_PENDING') === 'hidden' && !!$('RZ_PENDING').querySelector(':scope > .jev-corner-label') && !bannerOf('RZ_PENDING'));
+      check('Nội dung không bị gián đoạn hay kẹt mờ', !$('RZ_PENDING').classList.contains('jev-blurred-post'));
+      backendDelayMs = 60;
+      scrollAway();
+      await sleep(100);
+
+      // --- Local "jank avoided" metric reported to the background worker ---
+      const uxMetrics = messages.filter(m => m.action === 'UX_METRIC');
+      check('Số lần tránh giật khung hình được báo cho worker (UX_METRIC)',
+        uxMetrics.length > 0 && uxMetrics.some(m => m.deferred > 0), JSON.stringify(uxMetrics));
+
+      // --- Regression: extension reloaded while a batch is still pending ---
+      // The orphaned content script must shut down silently: no API call, no
+      // "Extension context invalidated" warn, no further scanning. MUST run
+      // last — it kills the engine (shutdown() is one-way).
+      const warns = [];
+      const origWarn = console.warn;
+      console.warn = (...a) => { warns.push(a.map(String).join(' ')); origWarn.apply(console, a); };
+
+      const dead = document.createElement('div');
+      dead.id = 'CTX_DEAD';
+      dead.innerHTML = postHTML({ author: 'Trang Z', body: 'Kèo cá độ giữa hiệp, vào nhanh!' });
+      document.querySelector('[role="feed"]').appendChild(dead);
+
+      // Wait (via MutationObserver microtask — deterministically inside the
+      // 80ms batch window) until the post is QUEUED with the flush timer
+      // pending: the exact race from the "Extension context invalidated" report.
+      await new Promise(res => {
+        const mo = new MutationObserver(() => {
+          if (status('CTX_DEAD') === 'analyzing') { mo.disconnect(); res(); }
+        });
+        mo.observe(dead, { attributes: true, attributeFilter: ['data-jev-status'] });
+        setTimeout(res, 4000); // safety net only
+      });
+      check('Repro: bài đã vào hàng chờ AI (flush timer pending) trước khi reload',
+        status('CTX_DEAD') === 'analyzing', String(status('CTX_DEAD')));
+      const callsAtInvalidate = calls.length;
+
+      // Extension reloads right here: this content-script copy is orphaned.
+      chrome.runtime.id = undefined;
+
+      await sleep(400); // >> BATCH_INTERVAL_MS (80): the pending flush MUST have fired
+      check('Context invalidated: batch đang chờ KHÔNG gửi API sau reload',
+        calls.length === callsAtInvalidate, `calls ${callsAtInvalidate} -> ${calls.length}`);
+      check('Context invalidated: không warn "Extension context invalidated" / "Lỗi gửi batch"',
+        !warns.some(w => w.includes('invalidated') || w.includes('gửi batch')), warns.join(' | '));
+
+      // The engine stays shut down: further DOM churn produces no scan/calls.
+      const dead2 = document.createElement('div');
+      dead2.id = 'CTX_DEAD2';
+      dead2.innerHTML = postHTML({ author: 'Trang Z2', body: 'Thêm kèo cá độ sau reload' });
+      document.querySelector('[role="feed"]').appendChild(dead2);
+      await sleep(800); // > SCAN_THROTTLE_MS + idle + a heartbeat slice
+      check('Context invalidated: engine shutdown hoàn toàn, DOM mới không được quét',
+        calls.length === callsAtInvalidate && !status('CTX_DEAD2'), String(status('CTX_DEAD2')));
+
+      console.warn = origWarn;
 
       results.done = true;
       const summary = document.createElement('div');

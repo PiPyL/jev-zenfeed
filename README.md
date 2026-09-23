@@ -18,10 +18,13 @@
   * **Request gọn:** Nội dung bài và tiêu chí đều chỉ xuất hiện một lần trong request (rubric dùng chung, tham chiếu `state.criteria`); bài dài được cắt giữ phần đầu + cuối. Bài trùng nội dung (cùng quảng cáo, nhiều tab) chỉ được đánh giá một lần.
   * **LRU Cache bền vững (IndexedDB):** Lưu kết quả theo mã băm FNV-1a. Cuộn lại bài cũ, đổi ngưỡng, hay đổi thứ tự/khoảng trắng trong tiêu chí: kết quả có ngay, **0 token**. Kết quả lỗi không bao giờ được lưu cache.
   * **"Xem thêm" không tốn thêm token:** Bài mở rộng chỉ được duyệt lại khi nội dung tăng đáng kể.
-* **Trải nghiệm Không Gián Đoạn (Anti-FOUC & Collapsed Banner):**
-  * Làm mờ bài viết tức thì trong tích tắc chờ AI duyệt.
-  * Khi phát hiện bài vi phạm, thu gọn thành **Thanh thông báo** (không làm giật trang/nhảy khung hình).
-  * Cho phép người dùng bấm **"Xem"** bất cứ lúc nào, hoặc **"Ẩn nhầm"** để bài đó không bao giờ bị ẩn lại (không gọi API).
+* **Trải nghiệm Không Gián Đoạn (Reading-zone aware, Anti-FOUC & Collapsed Banner):**
+  * **Không bao giờ thu gọn bài đang trong tầm mắt:** bài chỉ bị ẩn thật (banner/blur/remove) ngay khi được phát hiện là vi phạm nếu nó **không** đang nằm trong vùng bạn thực sự đang đọc (khoảng 65% trên cùng màn hình). Nếu bài đang ở đó, ZenFeed đợi đến khi bạn cuộn qua rồi mới thu gọn — feed không bao giờ giật hay nhảy khung hình dưới mắt bạn.
+  * **Bài mới, còn trong tầm mắt, bị phát hiện vi phạm:** làm mờ tại chỗ (không đổi chiều cao) kèm nhãn nêu rõ lý do.
+  * **Bài bạn đã đọc hoặc đã tương tác (Thích/Bình luận/Xem thêm) trước khi có kết quả:** chỉ gắn một nhãn nhỏ ở góc, không che, không tự thu gọn — tôn trọng việc bạn đã chủ động xem.
+  * **Hai chế độ chờ AI:** *Mượt* (mặc định) không bao giờ làm mờ bài đang hiển thị; *Nghiêm ngặt* làm mờ cả lúc đang chờ (kèm nút "Xem luôn"), hợp với tiêu chí spoiler.
+  * Cho phép người dùng bấm **"Xem"** bất cứ lúc nào, hoặc **"Không phải spam"** để bài đó không bao giờ bị ẩn lại (không gọi API).
+  * Thống kê **"Tránh giật"** trong Popup: đếm số lần cơ chế trên đã hoãn một lần thu gọn để không làm phiền bạn.
 * **Badge trên icon:** Hiện số bài đã ẩn trong tab; `!` khi thiếu API key/tiêu chí hoặc API đang lỗi; `OFF` khi tắt.
 * **Preset Mẫu 1-Click:** Tích hợp sẵn các bộ lọc thông dụng: Chống cờ bạc/cá độ, Chống spoiler phim, Chống drama showbiz câu view, Chống rác tiền ảo.
 
@@ -46,9 +49,10 @@
 2. Nhập API Key TypeSafe Jev của bạn vào ô **API Key**. *(Nếu dùng proxy hoặc Vercel AI Gateway, bấm "Tùy chỉnh Endpoint" để đổi URL — Chrome sẽ hỏi cấp quyền truy cập domain đó).*
 3. Bấm nút **⚡ Kiểm tra kết nối** để xác nhận API Key hoạt động bình thường.
 4. Chọn một Preset có sẵn hoặc tự gõ tiêu chí bạn muốn ẩn vào ô text.
-   * *Ví dụ: "Bài viết về cá độ bóng đá, quảng cáo game bài, cho vay nặng lãi, tin giật gân bóc phốt showbiz"*
+   * *Ví dụ tiêu chí ẩn: "quảng cáo, bất động sản, spam, lừa đảo, tuyển dụng việc làm"*
+   * *Ngoại lệ / Whitelist (Tùy chọn):* Nhập các chủ đề bạn **luôn muốn giữ lại** (ví dụ: `IT, AI, Lập trình viên, Việc làm công nghệ`). Nhờ kiến trúc **Atomic Questions** của Jev System One, bài viết tuyển dụng IT/AI sẽ được giữ lại an toàn mà không bao giờ bị ẩn nhầm!
 5. Điều chỉnh ngưỡng độ tin cậy (mặc định: **70%**).
-6. Cài đặt **tự lưu** và áp dụng ngay trên các tab Facebook đang mở. Riêng tiêu chí lọc cần bấm **Áp dụng** (hoặc Ctrl/⌘ + Enter) — để tiêu chí gõ dở không làm tốn token; bản nháp được giữ lại nếu bạn đóng popup.
+6. Cài đặt **tự lưu** và áp dụng ngay trên các tab Facebook đang mở. Riêng tiêu chí lọc và ngoại lệ cần bấm **Áp dụng** (hoặc Ctrl/⌘ + Enter) — để tiêu chí gõ dở không làm tốn token; bản nháp được giữ lại nếu bạn đóng popup.
 
 ---
 
@@ -67,7 +71,7 @@
 jev-facebook-filter/
 ├── manifest.json              # Khai báo chuẩn Chrome Manifest V3
 ├── package.json               # Cấu hình dự án & scripts test
-├── icons/                     # Bộ icon 16x16, 48x48, 128x128
+├── icons/                     # Bộ icon 16x16, 32x32, 48x48, 128x128
 ├── src/
 │   ├── background/
 │   │   ├── background.js      # Service Worker: xử lý batch, badge, tin nhắn
@@ -82,6 +86,7 @@ jev-facebook-filter/
 │   ├── utils/
 │   │   ├── settings-defaults.js # Cài đặt mặc định dùng chung (single source)
 │   │   ├── fast-hash.js       # FNV-1a hash dùng chung
+│   │   ├── clip-text.js       # Cắt giữ đầu + đuôi bài dài (dùng chung content/worker)
 │   │   └── logger.js          # Nhật ký hoạt động (ghi theo lô, storage.session)
 │   └── popup/
 │       ├── popup.html         # Giao diện cài đặt tiện ích

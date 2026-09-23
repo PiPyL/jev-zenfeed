@@ -5,6 +5,7 @@
   "description": "Active Noise Cancellation for your eyes. (Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.) Lọc Facebook bằng AI.",
   "icons": {
     "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
@@ -26,6 +27,7 @@
     "default_popup": "src/popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
@@ -40,6 +42,9 @@
         "src/utils/settings-defaults.js",
         "src/utils/i18n.js",
         "src/utils/fast-hash.js",
+        "src/utils/clip-text.js",
+        "src/utils/zen-data.js",
+        "src/utils/flashcards-data.js",
         "src/content/fb-selectors.js",
         "src/content/text-extractor.js",
         "src/content/ui-overlay.js",

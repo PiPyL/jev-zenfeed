@@ -85,9 +85,9 @@ body {
 }
 
 .btn-xs .ui-svg-icon {
-  width: 12px;
-  height: 12px;
-  margin-right: 3px;
+  width: 13px;
+  height: 13px;
+  margin: 0;
 }
 
 .btn-clear-cache .ui-svg-icon {
@@ -96,7 +96,7 @@ body {
   margin-right: 4px;
 }
 
-.card-title .ui-svg-icon {
+.card-title .title-with-icon .ui-svg-icon {
   width: 15px;
   height: 15px;
   color: var(--primary);
@@ -146,7 +146,7 @@ body {
 .logo {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  object-fit: contain;
 }
 
 h1 {
@@ -527,9 +527,15 @@ textarea {
 /* Stats */
 .stats-card {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-around;
+  row-gap: 10px;
   text-align: center;
   padding: 10px;
+}
+
+.stat-item {
+  min-width: 64px;
 }
 
 .stat-value {
@@ -697,22 +703,42 @@ textarea {
 .log-actions {
   display: flex;
   gap: 4px;
+  align-items: center;
 }
 
 .btn-xs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--bg-color);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 2px 7px;
-  font-size: 10px;
-  font-weight: 500;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   cursor: pointer;
-  color: var(--text-main);
-  transition: background 0.2s;
+  color: var(--text-muted);
+  transition: all 0.2s;
 }
 
 .btn-xs:hover {
   background: var(--border);
+  color: var(--text-main);
+}
+
+#btnCopyLogs:hover {
+  color: var(--primary);
+  border-color: rgba(45, 136, 255, 0.4);
+}
+
+#btnClearLogs:hover {
+  color: var(--danger);
+  border-color: rgba(250, 56, 62, 0.4);
+}
+
+.btn-xs.copied {
+  color: var(--success);
+  border-color: var(--success);
 }
 
 .log-filter-pills {
@@ -856,5 +882,57 @@ textarea {
 
 .prompt-hint strong {
   color: var(--primary);
+}
+
+/* Blur Customization Panel */
+.blur-customization-card {
+  margin-top: 10px;
+  padding: 12px;
+  background: rgba(127, 168, 148, 0.08);
+  border: 1px solid rgba(127, 168, 148, 0.25);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.blur-customization-card.hidden {
+  display: none !important;
+}
+
+.setting-sub-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setting-sub-row.hidden {
+  display: none !important;
+}
+
+.setting-label-small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.textarea-small {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-main);
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 50px;
+  box-sizing: border-box;
+}
+
+.textarea-small:focus {
+  outline: none;
+  border-color: #7FA894;
+  box-shadow: 0 0 0 2px rgba(127, 168, 148, 0.2);
 }
 

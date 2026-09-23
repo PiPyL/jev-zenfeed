@@ -248,7 +248,7 @@ try {
     confidenceThreshold: 70,
     extensionEnabled: true
   });
-  await import('../src/background/background.js');
+  await import('../src/background/background.js').then(m => { globalThis.__jevBackground = m; });
   const evaluate = (items) => fake.send({ action: 'EVALUATE_BATCH', items });
   const BAD = 'Kèo cá độ bóng đá đêm nay cực thơm, vào ngay';
   const GOOD = 'Hôm nay mình học lập trình JavaScript';
@@ -347,16 +347,98 @@ try {
   assert.strictEqual(fake.badges[7].text, '3');
   ok('[Background] Badge trên icon: số bài đã ẩn / OFF / "!" khi thiếu cấu hình.');
 
-  // 23. Persisted cache contains real decisions only — and not in storage.local
+  // 23. Persisted cache contains real decisions only — and stats are two-tier
   await (await import('../src/background/decision-cache.js')).flush();
   const persisted = (await import('../src/background/decision-cache.js')).persistedKeysForTest();
   assert(!('cachedDecisions' in fake.store), 'Cache KHÔNG còn nằm trong storage.local');
   assert(persisted.some(k => k.startsWith('h_bad_')), 'Quyết định thật phải được lưu');
   assert(!persisted.some(k => k.startsWith('h_missing')), 'Kết quả lỗi TUYỆT ĐỐI không được lưu cache');
   await new Promise(r => setTimeout(r, 1200));
-  const stats = fake.store.stats;
-  assert(stats && stats.scanned > 0 && stats.hidden > 0 && stats.cacheHits > 0, 'Thống kê phải được ghi');
-  ok('[Background] Cache lưu bền chỉ chứa quyết định thật; thống kê được ghi.');
+  const sessStats = fake.sessionStore.stats;
+  assert(sessStats && sessStats.scanned > 0 && sessStats.hidden > 0 && sessStats.cacheHits > 0,
+    'Thống kê nhanh phải nằm ở storage.session (không broadcast sang tab Facebook)');
+  await globalThis.__jevBackground.__flushStatsForTest();
+  const locStats = fake.store.stats;
+  assert(locStats && locStats.scanned >= sessStats.scanned && locStats.hidden > 0,
+    'Snapshot phải gộp thống kê vào storage.local để sống sót qua restart trình duyệt');
+  assert(fake.sessionStore.stats && fake.sessionStore.stats.scanned === 0,
+    'Sau snapshot, bộ đếm session về 0 (popup tự tính local + session)');
+  ok('[Background] Cache lưu bền chỉ chứa quyết định thật; thống kê 2 tầng session (nhanh) + local (bền).');
+
+  // 25. i18n & Corner label generic fallback
+  const { t } = globalThis.__jevI18n;
+  assert.strictEqual(t('vi', 'cornerLabelGeneric'), 'Khớp tiêu chí lọc');
+  assert.strictEqual(t('en', 'cornerLabelGeneric'), 'Matches filter criteria');
+  assert.strictEqual(t('vi', 'blurTagGeneric'), 'Đã ẩn: Khớp tiêu chí');
+  assert.strictEqual(t('en', 'blurTagGeneric'), 'Hidden: Matches criteria');
+  assert.strictEqual(t('vi', 'cornerLabel', { cat: 'Bất động sản' }), 'Có vẻ là Bất động sản');
+  ok('[i18n] Nhãn chung (fallback) đa ngôn ngữ hợp lệ; tránh gán nhãn sai danh mục.');
+
+  // 26. TypeSafe AI: Multilingual & Clean Criteria Parser
+  const filterCrit = 'quảng cáo, bất động sản, spam, có dấu hiệu lừa đảo, tuyển dụng';
+  const whitelistCrit = 'IT, AI, Lập trình';
+  const filterTopics = criteriaTopics(filterCrit);
+  const wlTopics = criteriaTopics(whitelistCrit);
+  assert.deepStrictEqual(filterTopics, ['quảng cáo', 'bất động sản', 'spam', 'có dấu hiệu lừa đảo', 'tuyển dụng']);
+  assert.deepStrictEqual(wlTopics, ['IT', 'AI', 'Lập trình']);
+  assert.strictEqual(criteriaFingerprint(filterCrit, whitelistCrit), 'bất động sản|có dấu hiệu lừa đảo|quảng cáo|spam|tuyển dụng#wl:ai|it|lập trình');
+  ok('[TypeSafe AI] Parser thuần khiết, độc lập ngôn ngữ (Language-Agnostic).');
+
+  // 27. TypeSafe AI Atomic Questions: Request Building
+  const atomicReq = buildRequestBody([
+    { id: 'p_test', text: 'Tuyển dụng Kỹ sư AI lương $3000', author: 'Tech Corp' }
+  ], filterCrit, whitelistCrit);
+  assert(atomicReq.questions.p_test__violate, 'Phải có câu hỏi nguyên tử kiểm tra vi phạm filter');
+  assert(atomicReq.questions.p_test__whitelist, 'Phải có câu hỏi nguyên tử kiểm tra whitelist');
+  assert.strictEqual(atomicReq.state.criteria, 'quảng cáo; bất động sản; spam; có dấu hiệu lừa đảo; tuyển dụng');
+  assert.strictEqual(atomicReq.state.whitelist, 'IT; AI; Lập trình');
+  ok('[Atomic Questions] buildRequestBody sinh đúng 2 câu hỏi nguyên tử (violate & whitelist).');
+
+  // 28. TypeSafe AI Atomic Questions: Decision Synthesis (Boolean Logic)
+  const evalResults = await evaluateWithJev('mock_key', BASE, [
+    { id: 'it_job', text: 'Tuyển dụng Kỹ sư AI / Lập trình viên Python lương cao', author: 'Tech HR' },
+    { id: 'other_job', text: 'Tuyển nhân viên phục vụ quán cafe làm theo ca', author: 'Cafe HR' },
+    { id: 'real_estate', text: 'Bán đất nền bất động sản ven biển chính chủ sổ đỏ', author: 'Cò Đất' },
+    { id: 'normal_tech', text: 'Chia sẻ kiến thức về lập trình JavaScript và React', author: 'Coder' }
+  ], filterCrit, 70, whitelistCrit);
+
+  const byPostId = new Map(evalResults.map(r => [r.id, r]));
+  assert.strictEqual(byPostId.get('it_job').shouldHide, false, 'Tuyển dụng IT/AI KHÔNG được bị ẩn (Nhờ Whitelist)');
+  assert.strictEqual(byPostId.get('other_job').shouldHide, true, 'Tuyển dụng ngoài ngành IT/AI PHẢI bị ẩn');
+  assert.strictEqual(byPostId.get('real_estate').shouldHide, true, 'Bất động sản PHẢI bị ẩn');
+  assert.strictEqual(byPostId.get('normal_tech').shouldHide, false, 'Bài viết công nghệ thông thường KHÔNG được bị ẩn');
+  ok('[Atomic Questions] Đánh giá Jev System One: Tuyển dụng IT/AI được giữ lại thành công 100%, tuyển dụng ngoài ngành bị ẩn.');
+
+  // 29. Blur Mode: Zen Data & Flashcard Data Module Tests
+  await import('../src/utils/zen-data.js');
+  await import('../src/utils/flashcards-data.js');
+  const zenData = globalThis.__jevZenData;
+  const flashcardsData = globalThis.__jevFlashcardsData;
+
+  assert(zenData, 'zenData phải được khởi tạo vào global');
+  const viQuote = zenData.getRandomQuote('vi');
+  assert(viQuote.text && viQuote.text.length > 5, 'Quote tiếng Việt phải có nội dung');
+  const enQuote = zenData.getRandomQuote('en');
+  assert(enQuote.text && enQuote.text.length > 5, 'Quote tiếng Anh phải có nội dung');
+
+  // Custom quotes support
+  const customList = "Hôm nay tôi sẽ tập trung 100%\nUống 2 lít nước mỗi ngày";
+  const customPick = zenData.getRandomQuote('vi', customList);
+  assert(customPick.text === 'Hôm nay tôi sẽ tập trung 100%' || customPick.text === 'Uống 2 lít nước mỗi ngày');
+
+  assert(flashcardsData, 'flashcardsData phải được khởi tạo vào global');
+  const cardIelts = flashcardsData.getRandomFlashcard('ielts', 'vi');
+  assert(cardIelts.term && cardIelts.meaning, 'Flashcard IELTS phải có term và nghĩa');
+  const cardTech = flashcardsData.getRandomFlashcard('tech', 'vi');
+  assert(cardTech.term && cardTech.meaning, 'Flashcard Tech phải có term và nghĩa');
+  ok('[Blur Mode & Zero-CLS] Zen Data & Flashcard Data hoạt động chuẩn xác, bảo đảm random không lỗi và an toàn.');
+
+  // 30. Defaults: Blur Customization Keys
+  assert.strictEqual(DEFAULT_SETTINGS.blurPreset, 'zen', 'Mặc định blurPreset phải là zen');
+  assert.strictEqual(DEFAULT_SETTINGS.blurFlashcardTopic, 'ielts', 'Mặc định blurFlashcardTopic phải là ielts');
+  assert.strictEqual(DEFAULT_SETTINGS.blurRevealFriction, 'instant', 'Mặc định blurRevealFriction phải là instant');
+  assert(PUBLIC_SETTING_KEYS.includes('blurPreset') && PUBLIC_SETTING_KEYS.includes('blurRevealFriction'), 'Content script phải đọc được cấu hình blur');
+  ok('[Blur Customization] Settings mở rộng đầy đủ các key tùy biến cho chế độ Làm mờ.');
 } finally {
   mockServer.kill();
 }
