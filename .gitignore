@@ -17,8 +17,13 @@ web/.astro/
 # OS files
 .DS_Store
 Thumbs.db
+.idea/
+*.swp
 
 # IDE and logs
 .claude/
 .vscode/
 *.log
+
+# Planning & Journals
+plans/

@@ -4,6 +4,7 @@
   "description": "Active Noise Cancellation for your eyes - AI-powered Facebook feed filter Chrome Extension.",
   "type": "module",
   "scripts": {
+    "pretest": "node scripts/build-zip.js",
     "test": "node test/test-jev-mock.js",
     "mock-server": "node test/mock-jev-server.js",
     "lint": "for f in $(find src test -name '*.js'); do node --check \"$f\" || exit 1; done && echo 'Lint (syntax check): all files OK.'",
