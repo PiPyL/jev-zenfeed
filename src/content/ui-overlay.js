@@ -4,7 +4,7 @@
  * Every injected node carries the `jev-ui` class so the text extractor ignores it.
  *
  * UX review (2026-09): a post that is still inside the user's "reading zone"
- * (content.js) is never yanked away — it gets a quiet corner label or an
+ * (content.js) stays in place until it leaves — it gets a quiet corner label or an
  * in-place blur (no height change) instead of an instant collapse. The three
  * visual surfaces here (banner, blur tag, corner label) all describe the SAME
  * decision the same way (category/reason, no raw confidence number — that's
@@ -15,6 +15,104 @@ window.JevFB = window.JevFB || {};
 
 (function() {
   const JevFB = window.JevFB;
+  const hiddenContentState = new WeakMap();
+  const blurCanvases = new WeakMap();
+  const postForCanvas = new WeakMap();
+  const canvasResizeObserver = typeof ResizeObserver === 'function'
+    ? new ResizeObserver((entries) => {
+        entries.forEach((entry) => {
+          const canvas = blurCanvases.get(entry.target);
+          if (!canvas) return;
+          const height = entry.contentRect.height;
+          canvas.classList.toggle('jev-canvas-compact', height > 0 && height < 220);
+          canvas.classList.toggle('jev-canvas-minimal', height > 0 && height < 130);
+        });
+      })
+    : null;
+
+  const canvasVisibilityObserver = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (!entry.target.isConnected) {
+            const postEl = postForCanvas.get(entry.target);
+            if (postEl && !postEl.isConnected) {
+              // Facebook temporarily detaches virtualized cards. Keep their
+              // blur and accessibility state intact; unregister/resume owns
+              // observer lifecycle as the card leaves and re-enters the feed.
+              suspendBlurEffects(postEl);
+              entry.target.classList.add('jev-effect-offscreen');
+            } else if (postEl) {
+              // Facebook removed only the overlay from a live card. Restore
+              // content access and let the content script re-create it.
+              stopBlurObservers(postEl, entry.target);
+              restoreBlurredContent(postEl);
+              postEl.classList.remove('jev-blurred-post', 'jev-blur-classic');
+              if (!postEl.querySelector(':scope > .jev-ui')) postEl.classList.remove('jev-relative-anchor');
+            } else {
+              canvasVisibilityObserver.unobserve(entry.target);
+            }
+            return;
+          }
+          entry.target.classList.toggle('jev-effect-offscreen', !entry.isIntersecting);
+        });
+      }, { rootMargin: '150px' })
+    : null;
+
+  function isolateBlurredContent(postEl) {
+    let saved = hiddenContentState.get(postEl);
+    if (!saved) {
+      saved = new Map();
+      hiddenContentState.set(postEl, saved);
+    }
+    for (const child of postEl.children) {
+      if (child.classList.contains('jev-ui') || saved.has(child)) continue;
+      saved.set(child, {
+        inert: child.inert,
+        ariaHidden: child.getAttribute('aria-hidden')
+      });
+      child.inert = true;
+      child.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function restoreBlurredContent(postEl) {
+    const saved = hiddenContentState.get(postEl);
+    if (!saved) return;
+    saved.forEach((state, child) => {
+      child.inert = state.inert;
+      if (state.ariaHidden === null) child.removeAttribute('aria-hidden');
+      else child.setAttribute('aria-hidden', state.ariaHidden);
+    });
+    hiddenContentState.delete(postEl);
+  }
+
+  function observeBlurredPost(postEl, canvas) {
+    blurCanvases.set(postEl, canvas);
+    postForCanvas.set(canvas, postEl);
+    if (canvasResizeObserver) canvasResizeObserver.observe(postEl);
+    if (canvasVisibilityObserver) canvasVisibilityObserver.observe(canvas);
+  }
+
+  function suspendBlurEffects(postEl) {
+    const canvas = blurCanvases.get(postEl);
+    if (canvasVisibilityObserver && canvas) canvasVisibilityObserver.unobserve(canvas);
+    if (canvasResizeObserver && canvas) canvasResizeObserver.unobserve(postEl);
+  }
+
+  JevFB.suspendBlurEffects = suspendBlurEffects;
+  JevFB.resumeBlurEffects = function(postEl) {
+    if (!postEl || !postEl.classList.contains('jev-blurred-post')) return;
+    const canvas = postEl.querySelector(':scope > .jev-blur-canvas');
+    if (canvas) observeBlurredPost(postEl, canvas);
+  };
+
+  function stopBlurObservers(postEl, detachedCanvas = null) {
+    const canvas = detachedCanvas || blurCanvases.get(postEl) || postEl.querySelector(':scope > .jev-blur-canvas');
+    if (canvasVisibilityObserver && canvas) canvasVisibilityObserver.unobserve(canvas);
+    if (canvasResizeObserver && blurCanvases.has(postEl)) canvasResizeObserver.unobserve(postEl);
+    blurCanvases.delete(postEl);
+    if (canvas) postForCanvas.delete(canvas);
+  }
 
   /**
    * Escape HTML special chars before injecting into innerHTML (F6)
@@ -90,6 +188,8 @@ window.JevFB = window.JevFB || {};
    */
   JevFB.unhidePost = function(postEl) {
     if (!postEl) return;
+    stopBlurObservers(postEl);
+    restoreBlurredContent(postEl);
     postEl.classList.remove(
       'jev-post-collapsed', 'jev-revealed', 'jev-blurred-post', 'jev-blur-classic', 'jev-relative-anchor', 'jev-banner-slim'
     );
@@ -143,12 +243,17 @@ window.JevFB = window.JevFB || {};
     // Mode 2: Blur overlay
     if (mode === 'blur') {
       postEl.classList.add('jev-blurred-post');
+      isolateBlurredContent(postEl);
       JevFB.injectBlurControls(postEl, decision, options);
       return;
     }
 
     // Mode 3: Collapsed Banner (Default & Recommended)
     JevFB.injectCollapsedBanner(postEl, decision, options);
+  };
+
+  JevFB.syncBlurAccessibility = function(postEl) {
+    if (postEl && postEl.classList.contains('jev-blurred-post')) isolateBlurredContent(postEl);
   };
 
   const ICON_SHIELD = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">' +
@@ -260,6 +365,8 @@ window.JevFB = window.JevFB || {};
   function bindRevealAction(btn, postEl, canvasOrTag, friction) {
     if (!btn) return;
     const reveal = () => {
+      stopBlurObservers(postEl);
+      restoreBlurredContent(postEl);
       postEl.classList.remove('jev-blurred-post', 'jev-blur-classic');
       postEl.classList.add('jev-revealed');
       canvasOrTag.remove();
@@ -269,9 +376,16 @@ window.JevFB = window.JevFB || {};
       let holdTimer = null;
       const HOLD_DURATION = 1500;
       const fill = btn.querySelector('.jev-hold-fill');
+      let keyboardHold = false;
+      let keyboardClickBlocked = false;
 
       const startHold = (e) => {
+        if (holdTimer || e.repeat || (e.button !== undefined && e.button !== 0)) return;
         e.stopPropagation();
+        if (e.type === 'keydown') {
+          e.preventDefault();
+          keyboardHold = true;
+        }
         if (fill) {
           fill.style.transition = `width ${HOLD_DURATION}ms linear`;
           fill.style.width = '100%';
@@ -282,6 +396,7 @@ window.JevFB = window.JevFB || {};
       };
 
       const cancelHold = (e) => {
+        if (e) e.stopPropagation();
         if (holdTimer) {
           clearTimeout(holdTimer);
           holdTimer = null;
@@ -290,14 +405,36 @@ window.JevFB = window.JevFB || {};
             fill.style.width = '0%';
           }
         }
+        keyboardHold = false;
       };
 
-      btn.addEventListener('mousedown', startHold);
-      btn.addEventListener('mouseup', cancelHold);
-      btn.addEventListener('mouseleave', cancelHold);
-      btn.addEventListener('touchstart', startHold, { passive: true });
-      btn.addEventListener('touchend', cancelHold);
-      btn.addEventListener('touchcancel', cancelHold);
+      btn.addEventListener('pointerdown', (e) => {
+        if (!e.isPrimary) return;
+        startHold(e);
+        try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+      });
+      btn.addEventListener('pointerup', cancelHold);
+      btn.addEventListener('pointercancel', cancelHold);
+      btn.addEventListener('lostpointercapture', cancelHold);
+      btn.addEventListener('keydown', (e) => {
+        if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) startHold(e);
+      });
+      btn.addEventListener('keyup', (e) => {
+        if (keyboardHold && (e.key === ' ' || e.key === 'Enter')) {
+          e.preventDefault();
+          cancelHold(e);
+          keyboardClickBlocked = true;
+          setTimeout(() => { keyboardClickBlocked = false; }, 0);
+        }
+      });
+      btn.addEventListener('blur', cancelHold);
+      // Some assistive technologies activate buttons with a synthetic click
+      // instead of a key press. Keep that activation available.
+      btn.addEventListener('click', (e) => {
+        if (e.detail !== 0 || keyboardClickBlocked || keyboardHold) return;
+        e.stopPropagation();
+        reveal();
+      });
     } else {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -307,11 +444,12 @@ window.JevFB = window.JevFB || {};
   }
 
   /**
-   * Inject Canvas overlay (Zero-CLS Digital Sanctuary) or classic blur tag.
-   * Preserves natural post dimensions (no height change) to prevent layout shifts.
+   * Inject an in-place blur overlay or classic blur tag. The post box retains
+   * its dimensions while blurred; banner/remove modes intentionally change it.
    */
   JevFB.injectBlurControls = function(postEl, decision, options = {}) {
     if (postEl.querySelector(':scope > .jev-blur-canvas') || postEl.querySelector(':scope > .jev-blur-tag')) return;
+    isolateBlurredContent(postEl);
 
     const lang = options.lang || 'en';
     const t = JevFB.t || ((_l, _k, _p) => _k);
@@ -327,7 +465,7 @@ window.JevFB = window.JevFB || {};
       tag.className = 'jev-ui jev-blur-tag';
 
       const labelText = blurTagText(decision, options, lang, t);
-      const showLabel = t(lang, 'btnShowContent');
+      const showLabel = friction === 'hold' ? t(lang, 'zenHoldToReveal') : t(lang, 'btnShowContent');
       const safeLabel = t(lang, 'btnMarkSafeShort') || t(lang, 'btnMarkSafe');
 
       tag.innerHTML = `
@@ -345,14 +483,17 @@ window.JevFB = window.JevFB || {};
       return;
     }
 
-    // 2. Zero-CLS Canvas Overlay (Zen Oasis, AI X-Ray, Flashcard)
+    // 2. In-place canvas overlay (Zen Oasis, AI X-Ray, Flashcard)
     const canvas = document.createElement('div');
-    const isCompact = postEl.offsetHeight > 0 && postEl.offsetHeight < 220;
+    const initialHeight = postEl.offsetHeight;
+    const isCompact = initialHeight > 0 && initialHeight < 220;
+    const isMinimal = initialHeight > 0 && initialHeight < 130;
     canvas.className = 'jev-ui jev-blur-canvas jev-blur-tag' + (isCompact ? ' jev-canvas-compact' : '');
+    if (isMinimal) canvas.classList.add('jev-canvas-minimal');
     canvas.setAttribute('role', 'region');
     canvas.setAttribute('aria-label', t(lang, 'zenProtectedTag') || 'ZenFeed Protected');
 
-    // Floating Zen Card Container (centered, frosted glass, zero layout shift)
+    // Floating Zen card container
     const card = document.createElement('div');
     card.className = 'jev-floating-card';
 
@@ -448,7 +589,7 @@ window.JevFB = window.JevFB || {};
     cardFooter.innerHTML = `
       <button type="button" class="jev-canvas-btn jev-canvas-btn-safe jev-btn-safe" title="${escapeHtml(t(lang, 'btnMarkSafeTitle'))}">${escapeHtml(safeLabel)}</button>
       <button type="button" class="jev-canvas-btn jev-canvas-btn-reveal jev-btn-show ${friction === 'hold' ? 'jev-canvas-btn-hold' : ''}">
-        ${friction === 'hold' ? '<div class="jev-hold-fill"></div>' : ''}
+        ${friction === 'hold' ? '<div class="jev-hold-fill" aria-hidden="true"></div>' : ''}
         ${ICON_EYE}<span class="jev-btn-label">${escapeHtml(revealLabel)}</span>
       </button>
     `;
@@ -458,6 +599,7 @@ window.JevFB = window.JevFB || {};
 
     canvas.appendChild(card);
     postEl.prepend(canvas);
+    observeBlurredPost(postEl, canvas);
   };
 
   /**

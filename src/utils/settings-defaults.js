@@ -23,8 +23,8 @@
     // trade-off the whole content script leans on:
     //   'smooth' (default) — never blur a post the user can currently see;
     //     a violation is only ever collapsed once it scrolls out of the
-    //     "reading zone" (see content.js). A little spam is briefly visible
-    //     while the AI decides, but the feed itself never jumps or freezes.
+    //     "reading zone" (see content.js). A violating post may stay visible
+    //     while the AI decides; banner/remove modes can still change feed height.
     //   'strict' — blur on screen while the AI is still deciding (with a
     //     visible "Checking..." tag + a "Show now" escape hatch). Costs some
     //     smoothness; use for criteria where even a glimpse matters (spoilers).
@@ -33,7 +33,7 @@
     // languages (src/utils/i18n.js). Public so the content script can
     // localize the on-page banner to match the popup.
     language: 'en',
-    // Blur Mode Customization (Zero-CLS Canvas & Digital Sanctuary)
+    // Blur Mode Customization (Canvas & Digital Sanctuary)
     blurPreset: 'zen', // 'zen' | 'xray' | 'flashcard' | 'classic'
     blurFlashcardTopic: 'ielts', // 'ielts' | 'tech' | 'quotes'
     blurCustomQuotes: '', // custom newline-separated quotes

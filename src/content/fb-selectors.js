@@ -103,10 +103,16 @@ window.JevFB = window.JevFB || {};
    * Query all existing post units currently on page
    * @returns {HTMLElement[]}
    */
-  JevFB.getAllPosts = function() {
+  JevFB.getPostsWithin = function(root = document) {
     const found = new Set();
+    const queryAll = (selector) => {
+      const matches = [];
+      if (root.nodeType === 1 && root.matches(selector)) matches.push(root);
+      root.querySelectorAll(selector).forEach(el => matches.push(el));
+      return matches;
+    };
 
-    document.querySelectorAll(ANCHOR_SELECTOR).forEach(anchor => {
+    queryAll(ANCHOR_SELECTOR).forEach(anchor => {
       if (anchor.closest('.jev-ui') || isInComment(anchor) || isInChat(anchor)) return;
       if (!cardCache.has(anchor)) {
         // New anchor already inside a resolved card (e.g. its message block):
@@ -119,7 +125,7 @@ window.JevFB = window.JevFB || {};
       found.add(cardFor(anchor));
     });
 
-    document.querySelectorAll(LEGACY_SELECTOR).forEach(el => {
+    queryAll(LEGACY_SELECTOR).forEach(el => {
       if (isInComment(el) || isInChat(el) || el.getAttribute('role') === 'article' && el.closest('[role="article"]') !== el) return;
       if (!el.querySelector('div[dir="auto"], span[dir="auto"]')) return;
       const container = JevFB.getTopPostContainer(el);
@@ -134,6 +140,10 @@ window.JevFB = window.JevFB || {};
       }
       return true;
     });
+  };
+
+  JevFB.getAllPosts = function() {
+    return JevFB.getPostsWithin(document);
   };
 
   /**

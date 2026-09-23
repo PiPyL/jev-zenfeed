@@ -16,15 +16,15 @@
 * **Cơ chế Tiết kiệm Token Tối ưu:**
   * **IntersectionObserver:** Phân tích bài trước khoảng 1 màn hình để kịp ẩn trước khi bạn thấy; bài chưa cuộn tới không tốn token.
   * **Request gọn:** Nội dung bài và tiêu chí đều chỉ xuất hiện một lần trong request (rubric dùng chung, tham chiếu `state.criteria`); bài dài được cắt giữ phần đầu + cuối. Bài trùng nội dung (cùng quảng cáo, nhiều tab) chỉ được đánh giá một lần.
-  * **LRU Cache bền vững (IndexedDB):** Lưu kết quả theo mã băm FNV-1a. Cuộn lại bài cũ, đổi ngưỡng, hay đổi thứ tự/khoảng trắng trong tiêu chí: kết quả có ngay, **0 token**. Kết quả lỗi không bao giờ được lưu cache.
+  * **LRU Cache bền vững (IndexedDB):** Lưu điểm phân loại theo nội dung, tiêu chí và ngoại lệ. Cuộn lại bài cũ hoặc đổi ngưỡng: áp dụng lại quyết định đã lưu, **0 token**. Đổi tiêu chí/ngoại lệ sẽ đánh giá lại; kết quả lỗi không được lưu cache. Bản nâng cấp sửa định dạng cache sẽ xóa cache cũ một lần để tránh dùng quyết định thiếu điểm ngoại lệ.
   * **"Xem thêm" không tốn thêm token:** Bài mở rộng chỉ được duyệt lại khi nội dung tăng đáng kể.
 * **Trải nghiệm Không Gián Đoạn (Reading-zone aware, Anti-FOUC & Collapsed Banner):**
-  * **Không bao giờ thu gọn bài đang trong tầm mắt:** bài chỉ bị ẩn thật (banner/blur/remove) ngay khi được phát hiện là vi phạm nếu nó **không** đang nằm trong vùng bạn thực sự đang đọc (khoảng 65% trên cùng màn hình). Nếu bài đang ở đó, ZenFeed đợi đến khi bạn cuộn qua rồi mới thu gọn — feed không bao giờ giật hay nhảy khung hình dưới mắt bạn.
+  * **Ưu tiên giữ ổn định vùng đọc:** nếu bài vi phạm còn trong khoảng 65% phía trên màn hình, ZenFeed gắn nhãn hoặc làm mờ tại chỗ, rồi mới thu gọn khi bạn cuộn qua. Chế độ banner và xóa bài có thể làm thay đổi chiều cao feed; chế độ làm mờ giữ nguyên khung bài.
   * **Bài mới, còn trong tầm mắt, bị phát hiện vi phạm:** làm mờ tại chỗ (không đổi chiều cao) kèm nhãn nêu rõ lý do.
   * **Bài bạn đã đọc hoặc đã tương tác (Thích/Bình luận/Xem thêm) trước khi có kết quả:** chỉ gắn một nhãn nhỏ ở góc, không che, không tự thu gọn — tôn trọng việc bạn đã chủ động xem.
   * **Hai chế độ chờ AI:** *Mượt* (mặc định) không bao giờ làm mờ bài đang hiển thị; *Nghiêm ngặt* làm mờ cả lúc đang chờ (kèm nút "Xem luôn"), hợp với tiêu chí spoiler.
   * Cho phép người dùng bấm **"Xem"** bất cứ lúc nào, hoặc **"Không phải spam"** để bài đó không bao giờ bị ẩn lại (không gọi API).
-  * Thống kê **"Tránh giật"** trong Popup: đếm số lần cơ chế trên đã hoãn một lần thu gọn để không làm phiền bạn.
+  * Thống kê **"Lần hoãn ẩn"** trong Popup: đếm số lần ZenFeed trì hoãn thu gọn khi bài còn trong vùng đọc; đây không phải phép đo FPS hay số lần giật khung hình.
 * **Badge trên icon:** Hiện số bài đã ẩn trong tab; `!` khi thiếu API key/tiêu chí hoặc API đang lỗi; `OFF` khi tắt.
 * **Preset Mẫu 1-Click:** Tích hợp sẵn các bộ lọc thông dụng: Chống cờ bạc/cá độ, Chống spoiler phim, Chống drama showbiz câu view, Chống rác tiền ảo.
 

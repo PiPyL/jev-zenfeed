@@ -8,8 +8,9 @@
  *  - After the worker slept (~30 s idle) the first batch had to wait for the
  *    whole blob to be read back. Here a batch reads only the keys it needs.
  *
- * Records are compact: { v: 0|1, c: confidence%, r?: reason, u?: 1 (user
- * override), t: last-used ms }. Threshold gating is applied by the caller.
+ * Records are compact: { v: 0|1, c: confidence%, w?: whitelist confidence%,
+ * r?: reason, u?: 1 (user override), t: last-used ms }. Threshold gating is
+ * applied by the caller.
  * Falls back to an in-memory store where IndexedDB does not exist (Node tests).
  */
 
@@ -27,13 +28,21 @@ const mem = new Map();             // key -> record (insertion order = recency)
 const dirty = new Map();           // key -> record waiting to be written
 let flushTimer = null;
 let dbPromise = null;
+let cacheGeneration = 0;
 
 function openDb() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      const req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = () => {
-        req.result.createObjectStore(STORE).createIndex('t', 't');
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) {
+          db.createObjectStore(STORE).createIndex('t', 't');
+        } else {
+          // Version 1 did not preserve the separate whitelist score. Its
+          // cached combined boolean cannot be re-gated safely, so discard it.
+          req.transaction.objectStore(STORE).clear();
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -59,6 +68,7 @@ function memPut(key, record) {
 
 function toDecision(record) {
   const d = { violation: record.v === 1, confidence: record.c };
+  if (Number.isFinite(record.w)) d.whitelistConfidence = record.w;
   if (record.r) d.reason = record.r;
   if (record.u) d.user = true;
   return d;
@@ -77,11 +87,18 @@ export async function getMany(keys) {
   const found = new Map();
   const misses = [];
   const now = Date.now();
+  const generationAtStart = cacheGeneration;
 
   for (const key of keys) {
     const rec = mem.get(key);
     if (rec) {
       memPut(key, rec);
+      if (now - (rec.t || 0) > TOUCH_AFTER_MS) {
+        const touched = { ...rec, t: now };
+        memPut(key, touched);
+        dirty.set(key, touched);
+        scheduleFlush();
+      }
       found.set(key, toDecision(rec));
     } else {
       misses.push(key);
@@ -108,6 +125,10 @@ export async function getMany(keys) {
     }
   }
 
+  // A cache clear can race the IndexedDB read. Do not repopulate memory or
+  // return pre-clear records after the user explicitly cleared the cache.
+  if (generationAtStart !== cacheGeneration) return new Map();
+
   misses.forEach((key, i) => {
     const rec = records[i];
     if (!rec) return;
@@ -126,13 +147,20 @@ export async function getMany(keys) {
  * @param {string} key
  * @param {{violation: boolean, confidence: number, reason?: string, user?: boolean}} decision
  */
-export function set(key, decision) {
+export function set(key, decision, expectedGeneration = cacheGeneration) {
+  if (expectedGeneration !== cacheGeneration) return false;
   const record = { v: decision.violation ? 1 : 0, c: decision.confidence, t: Date.now() };
+  if (Number.isFinite(decision.whitelistConfidence)) record.w = decision.whitelistConfidence;
   if (decision.reason) record.r = decision.reason;
   if (decision.user) record.u = 1;
   memPut(key, record);
   dirty.set(key, record);
   scheduleFlush();
+  return true;
+}
+
+export function getGeneration() {
+  return cacheGeneration;
 }
 
 /** Write pending records in ONE transaction, then prune the oldest if over capacity. */
@@ -140,6 +168,7 @@ export async function flush() {
   clearTimeout(flushTimer);
   flushTimer = null;
   if (dirty.size === 0) return;
+  const generationAtStart = cacheGeneration;
   const batch = [...dirty];
   dirty.clear();
 
@@ -150,7 +179,7 @@ export async function flush() {
   }
 
   const db = await openDb();
-  if (!db) return;
+  if (!db || generationAtStart !== cacheGeneration) return;
   try {
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
@@ -180,6 +209,7 @@ function prune(db, n) {
 }
 
 export async function clear() {
+  cacheGeneration++;
   clearTimeout(flushTimer);
   flushTimer = null;
   mem.clear();

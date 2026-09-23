@@ -239,8 +239,8 @@
   font-size: 12px !important;
 }
 
-/* Blurred Post Mode — preserves natural post dimensions (no height change)
-   to prevent layout shifts (zero CLS) and provide a smooth Facebook browsing experience. */
+/* Blur mode preserves the post box. Banner and remove modes do not promise
+   zero layout shift because they deliberately replace or remove card content. */
 .jev-blurred-post {
   position: relative !important;
   overflow: hidden !important;
@@ -249,19 +249,22 @@
 }
 
 .jev-blurred-post > *:not(.jev-ui) {
-  filter: blur(28px) saturate(0.35) brightness(0.65) !important;
-  opacity: 0.65 !important;
   pointer-events: none !important;
   user-select: none !important;
-  transition: filter 0.3s ease, opacity 0.25s ease !important;
 }
 
-.__fb-dark-mode .jev-blurred-post > *:not(.jev-ui) {
-  filter: blur(28px) saturate(0.35) brightness(0.5) !important;
-  opacity: 0.55 !important;
+.jev-blurred-post.jev-blur-classic > *:not(.jev-ui) {
+  filter: blur(18px) saturate(0.45) brightness(0.72) !important;
+  opacity: 0.72 !important;
+  transition: filter 0.2s ease, opacity 0.2s ease !important;
 }
 
-/* ==================== Canvas Overlay (Zero-CLS Digital Sanctuary) ==================== */
+.__fb-dark-mode .jev-blurred-post.jev-blur-classic > *:not(.jev-ui) {
+  filter: blur(18px) saturate(0.45) brightness(0.62) !important;
+  opacity: 0.65 !important;
+}
+
+/* ==================== In-place blur overlay ==================== */
 .jev-blur-canvas {
   position: absolute !important;
   inset: 0 !important;
@@ -291,7 +294,7 @@
   background: rgba(18, 20, 24, 0.55) !important;
 }
 
-/* Floating Zen Card — centered, modern frosted glass, zero-CLS */
+/* Floating Zen card — centered, with one shared backdrop blur on the canvas. */
 .jev-floating-card {
   position: relative !important;
   width: 100% !important;
@@ -304,10 +307,8 @@
   padding: 22px 24px !important;
   border-radius: 16px !important;
   background: rgba(255, 255, 255, 0.94) !important;
-  backdrop-filter: blur(20px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
   border: 1px solid rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.1) !important;
   text-align: center !important;
   animation: jev-card-pop 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
@@ -320,7 +321,7 @@
 .__fb-dark-mode .jev-floating-card {
   background: rgba(36, 37, 38, 0.92) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45), 0 2px 10px rgba(0, 0, 0, 0.25) !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32) !important;
 }
 
 .jev-card-header {
@@ -392,7 +393,10 @@
   font-weight: 600 !important;
   color: #557c68 !important;
   animation: jev-box-breathing 16s ease-in-out infinite !important;
-  will-change: transform, opacity !important;
+}
+
+.jev-blur-canvas.jev-effect-offscreen .jev-zen-breathing-ring {
+  animation-play-state: paused !important;
 }
 
 .__fb-dark-mode .jev-zen-breathing-ring {
@@ -669,6 +673,20 @@
   font-size: 12px !important;
 }
 
+.jev-blur-canvas.jev-canvas-minimal .jev-floating-card {
+  gap: 0 !important;
+  padding: 4px 8px !important;
+}
+
+.jev-blur-canvas.jev-canvas-minimal .jev-card-header,
+.jev-blur-canvas.jev-canvas-minimal .jev-card-body {
+  display: none !important;
+}
+
+.jev-blur-canvas.jev-canvas-minimal .jev-card-footer {
+  margin: 0 !important;
+}
+
 /* Centered frosted glass capsule for clean, non-intrusive action controls */
 .jev-blur-tag:not(.jev-blur-canvas) {
   position: absolute !important;
@@ -850,6 +868,16 @@
 
 .jev-corner-btn:hover {
   background: rgba(255, 255, 255, 0.3) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jev-ui,
+  .jev-ui *,
+  .jev-blurred-post > * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @media (max-width: 480px) {
