@@ -960,3 +960,27 @@ textarea {
   border-color: #7FA894;
   box-shadow: 0 0 0 2px rgba(127, 168, 148, 0.2);
 }
+
+/* Open Source Footer */
+.popup-footer {
+  margin-top: 4px;
+  padding: 8px 0 2px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.github-footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.github-footer-link:hover {
+  color: var(--primary);
+}
+

@@ -57,9 +57,10 @@
 Đây là cách nhanh nhất và tiện lợi nhất cho mọi người dùng:
 
 1. **Tải file ZIP phát hành mới nhất:**
-   👉 Truy cập trang [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest) và tải file `zenfeed-v1.0.0.zip`.
+   👉 [**Tải trực tiếp zenfeed-v1.0.0.zip (1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.0.0.zip) hoặc xem các bản phát hành tại [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
 2. **Giải nén file ZIP:**
    Giải nén file `zenfeed-v1.0.0.zip` vào một thư mục trên máy tính của bạn (ví dụ: `Downloads/zenfeed-v1.0.0`).
+   > 💡 **Lưu ý quan trọng:** Hãy giải nén toàn bộ thư mục (trên Windows: click chuột phải vào file `zenfeed-v1.0.0.zip` → chọn **Extract All...**). Khi tải tiện ích, chọn đúng thư mục chứa trực tiếp file `manifest.json`.
 3. **Mở trang quản lý tiện ích trình duyệt:**
    Trên Chrome, Edge, Cốc Cốc hoặc Brave, nhập vào thanh địa chỉ:
    ```text

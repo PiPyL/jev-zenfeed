@@ -122,7 +122,8 @@
       errSystemOneNetwork: 'Could not connect to the System One endpoint',
       badgeOffTitle: 'Jev AI Filter — OFF', badgeSetupTitle: 'Jev AI Filter — missing API key or filter criteria',
       badgeErrorTitle: 'Jev AI Filter — API connection error, retrying',
-      badgeHiddenTitle: 'Jev AI Filter — hid {n} posts in this tab', badgeFilteringTitle: 'Jev AI Filter — filtering'
+      badgeHiddenTitle: 'Jev AI Filter — hid {n} posts in this tab', badgeFilteringTitle: 'Jev AI Filter — filtering',
+      footerGithub: '⭐ Star on GitHub · ZenFeed Open Source'
     },
     vi: {
       tabActivity: 'Hoạt động', tabSettings: 'Thiết lập',
@@ -223,7 +224,8 @@
       errSystemOneNetwork: 'Không thể kết nối tới endpoint System One',
       badgeOffTitle: 'Jev AI Filter — đang TẮT', badgeSetupTitle: 'Jev AI Filter — chưa có API key hoặc tiêu chí lọc',
       badgeErrorTitle: 'Jev AI Filter — lỗi kết nối API, đang thử lại',
-      badgeHiddenTitle: 'Jev AI Filter — đã ẩn {n} bài trong tab này', badgeFilteringTitle: 'Jev AI Filter — đang lọc'
+      badgeHiddenTitle: 'Jev AI Filter — đã ẩn {n} bài trong tab này', badgeFilteringTitle: 'Jev AI Filter — đang lọc',
+      footerGithub: '⭐ Ủng hộ 1 sao trên GitHub · ZenFeed Open Source'
     },
     zh: {
       tabActivity: '动态', tabSettings: '设置',

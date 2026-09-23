@@ -439,6 +439,25 @@ try {
   assert.strictEqual(DEFAULT_SETTINGS.blurRevealFriction, 'instant', 'Mặc định blurRevealFriction phải là instant');
   assert(PUBLIC_SETTING_KEYS.includes('blurPreset') && PUBLIC_SETTING_KEYS.includes('blurRevealFriction'), 'Content script phải đọc được cấu hình blur');
   ok('[Blur Customization] Settings mở rộng đầy đủ các key tùy biến cho chế độ Làm mờ.');
+
+  // 31. Open Source & Repository Metadata Check
+  const pkgJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+  assert.strictEqual(pkgJson.repository?.url, 'git+https://github.com/PiPyL/jev-zenfeed.git', 'Repository URL phải trỏ về PiPyL/jev-zenfeed.git');
+  assert.strictEqual(pkgJson.bugs?.url, 'https://github.com/PiPyL/jev-zenfeed/issues', 'Bugs URL phải trỏ về PiPyL/jev-zenfeed/issues');
+  assert.strictEqual(manifest.homepage_url, 'https://github.com/PiPyL/jev-zenfeed', 'manifest.json homepage_url phải trỏ về PiPyL/jev-zenfeed');
+  assert.strictEqual(pkgJson.license, 'MIT', 'License phải là MIT');
+  assert(fs.existsSync(path.resolve('LICENSE')), 'Phải có file LICENSE');
+  assert(fs.existsSync(path.resolve('CONTRIBUTING.md')), 'Phải có file CONTRIBUTING.md');
+  assert(fs.existsSync(path.resolve('README.md')), 'Phải có file README.md');
+  assert(fs.existsSync(path.resolve('README.vi.md')), 'Phải có file README.vi.md');
+  ok('[Open Source Metadata] Repository URL, Issues, manifest.homepage_url và tài liệu song ngữ hợp lệ.');
+
+  // 32. Distribution ZIP Integrity Check
+  const zipPath = path.resolve(`dist/zenfeed-v${pkgJson.version}.zip`);
+  assert(fs.existsSync(zipPath), `File ZIP phân phối ${zipPath} phải tồn tại`);
+  const zipStats = fs.statSync(zipPath);
+  assert(zipStats.size > 20000, 'File ZIP phân phối phải có kích thước hợp lệ (>20KB)');
+  ok('[Distribution ZIP] Gói phát hành ZIP tồn tại và sẵn sàng cho người dùng cài đặt.');
 } finally {
   mockServer.kill();
 }

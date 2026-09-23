@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "ZenFeed",
   "version": "1.0.0",
+  "homepage_url": "https://github.com/PiPyL/jev-zenfeed",
   "description": "Active Noise Cancellation for your eyes. (Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.) Lọc Facebook bằng AI.",
   "icons": {
     "16": "icons/icon16.png",

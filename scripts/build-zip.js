@@ -34,10 +34,14 @@ if (fs.existsSync(path.join(rootDir, 'README.vi.md'))) {
   filesToInclude.push('README.vi.md');
 }
 
+if (fs.existsSync(path.join(rootDir, 'CONTRIBUTING.md'))) {
+  filesToInclude.push('CONTRIBUTING.md');
+}
+
 console.log(`📦 Packaging ZenFeed v${version} into ${zipFileName}...`);
 
-// Use system zip command
-const command = `zip -r "${zipFilePath}" ${filesToInclude.join(' ')}`;
+// Use system zip command with clean exclusions
+const command = `zip -r "${zipFilePath}" ${filesToInclude.join(' ')} -x "*.DS_Store" "*__MACOSX*"`;
 execSync(command, { cwd: rootDir, stdio: 'inherit' });
 
 const stats = fs.statSync(zipFilePath);
