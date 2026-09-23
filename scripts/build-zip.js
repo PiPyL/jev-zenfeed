@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
-const version = pkg.version || '1.0.0';
+const version = pkg.version || '1.0.1';
 const distDir = path.join(rootDir, 'dist');
 
 if (!fs.existsSync(distDir)) {

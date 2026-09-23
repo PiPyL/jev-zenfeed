@@ -77,6 +77,10 @@
   // consider it "already read" — at that point hiding it is more disruptive
   // than useful, so we switch from blur-in-place to a quiet label.
   const CLEAR_SEEN_MS = 700;
+  // false: a confirmed violation is hidden (blur/banner/remove per hideMode) as
+  // soon as the verdict lands, even if the post is being read. true restores the
+  // older behaviour: only a quiet corner label until the post leaves the zone.
+  const DEFER_HIDE_WHEN_READING = false;
 
   /**
    * Per-element state. Keyed by the DOM node, so ids stay unique even when two
@@ -89,6 +93,16 @@
   const tracked = new Set();   // registered post containers (pruned when detached)
   const visible = new Set();   // containers currently within the prefetch margin
   const candidateQueue = [];
+  const inFlight = new Map();  // uid -> candidate awaiting a decision (partial or final)
+  // Content-side copy of RAW verdicts, keyed `${contentHash}_${criteriaHash}`.
+  // Repeated ads and posts Facebook re-renders are decided synchronously (same
+  // task as the DOM insertion, so before the next paint) with no worker trip.
+  const localCache = new Map();
+  const LOCAL_CACHE_MAX = 2000;
+  const EAGER_QUEUE_CAP = 40;   // beyond this, leave the rest to the IO look-ahead
+  const DIRTY_FLUSH_MS = 60;
+  const ERROR_BACKOFF_BASE_MS = 1000;
+  const ERROR_BACKOFF_MAX_MS = 60000;
   let batchTimer = null;
   let immediateBatchFlushScheduled = false;
   let uidCounter = 0;
@@ -112,11 +126,56 @@
    * (per post, per intersection event and per visible re-check).
    */
   let decisionKeyCache = null;
-  function currentDecisionKey() {
-    if (decisionKeyCache === null) {
-      decisionKeyCache = `${JevFB.fastHash(criteriaFingerprint(config.filterCriteria, config.whitelistCriteria))}|${config.confidenceThreshold}`;
+  let criteriaHashCache = null;
+  function currentCriteriaHash() {
+    if (criteriaHashCache === null) {
+      criteriaHashCache = JevFB.fastHash(criteriaFingerprint(config.filterCriteria, config.whitelistCriteria));
     }
+    return criteriaHashCache;
+  }
+  function currentDecisionKey() {
+    if (decisionKeyCache === null) decisionKeyCache = `${currentCriteriaHash()}|${config.confidenceThreshold}`;
     return decisionKeyCache;
+  }
+  function invalidateKeys() { decisionKeyCache = null; criteriaHashCache = null; }
+
+  function rememberRaw(hash, raw) {
+    const k = `${hash}_${currentCriteriaHash()}`;
+    localCache.delete(k);
+    localCache.set(k, raw);
+    if (localCache.size > LOCAL_CACHE_MAX) localCache.delete(localCache.keys().next().value);
+  }
+
+  /** Warm the local cache with the worker's most recent verdicts for the current criteria. */
+  function preloadHotDecisions() {
+    const wanted = currentCriteriaHash();
+    try {
+      chrome.runtime.sendMessage({ action: 'GET_HOT_DECISIONS' }).then((res) => {
+        if (!res || res.criteriaHash !== wanted || currentCriteriaHash() !== wanted || !Array.isArray(res.entries)) return;
+        // oldest first so the newest end up most recent in the LRU order
+        for (let i = res.entries.length - 1; i >= 0; i--) {
+          const [hash, raw] = res.entries[i];
+          if (typeof hash === 'string' && raw && !localCache.has(`${hash}_${wanted}`)) rememberRaw(hash, raw);
+        }
+        refreshVisible(); // posts already on screen may now resolve locally
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  // Local-cache resolutions are reported in one batched message for statistics
+  let localScanned = 0;
+  let localHidden = 0;
+  let localStatsTimer = null;
+  function reportLocalStats(hidden) {
+    localScanned++;
+    if (hidden) localHidden++;
+    if (localStatsTimer) return;
+    localStatsTimer = setTimeout(() => {
+      localStatsTimer = null;
+      const msg = { action: 'LOCAL_STATS', scanned: localScanned, hidden: localHidden };
+      localScanned = localHidden = 0;
+      try { chrome.runtime.sendMessage(msg).catch(() => {}); } catch (_) {}
+    }, 1000);
   }
 
   /**
@@ -189,11 +248,11 @@
   /**
    * Send log event to Background Logger
    */
-  JevFB.log = function(level, tag, message, details) {
+  JevFB.log = function(level, tag, key, details) {
     try {
       chrome.runtime.sendMessage({
         action: 'LOG_EVENT',
-        log: { level, tag, message, details }
+        log: { level, tag, key, details }
       }).catch(() => {});
     } catch (_) {}
   };
@@ -201,7 +260,7 @@
   // 1. Load initial configuration (public keys only)
   chrome.storage.local.get(pickPublic(DEFAULT_SETTINGS), (stored) => {
     config = pickPublic(stored);
-    decisionKeyCache = null;
+    invalidateKeys();
     if (config.extensionEnabled) initEngine();
   });
 
@@ -225,9 +284,13 @@
 
     if (publicChanged) {
       config = next;
-      decisionKeyCache = null;
+      invalidateKeys();
       applyConfigChange(prev);
     } else if (credentialsChanged && config.extensionEnabled && isEngineInitialized) {
+      tracked.forEach(el => {
+        const st = postState.get(el);
+        if (st) { st.skippedKey = undefined; st.retryAt = 0; st.errCount = 0; }
+      });
       refreshVisible();
     }
   });
@@ -244,7 +307,7 @@
     }
 
     if (!prev.extensionEnabled) {
-      JevFB.log('info', 'CONFIG', 'Bộ lọc đã BẬT lại trên trang Facebook');
+      JevFB.log('info', 'CONFIG', 'logCfgOn');
       // Posts added while the filter was OFF were never registered (the
       // observer early-returns when disabled) — force a registration walk.
       fullScanRequested = true;
@@ -253,20 +316,22 @@
       return;
     }
 
-    if (prev.hideMode !== config.hideMode) {
+    if (prev.hideMode !== config.hideMode || blurPresentationChanged(prev, config)) {
       rerenderHiddenPosts();
     }
 
     if (criteriaFingerprint(prev.filterCriteria, prev.whitelistCriteria) !==
         criteriaFingerprint(config.filterCriteria, config.whitelistCriteria) ||
         prev.confidenceThreshold !== config.confidenceThreshold) {
-      JevFB.log('info', 'CONFIG', 'Tiêu chí/ngưỡng lọc đã thay đổi — kiểm tra lại các bài đang hiển thị', {
-        criteria: config.filterCriteria ? config.filterCriteria.slice(0, 50) : '(trống)',
+      JevFB.log('info', 'CONFIG', 'logCfgChanged', {
+        criteria: config.filterCriteria ? config.filterCriteria.slice(0, 50) : '(empty)',
         threshold: config.confidenceThreshold
       });
       // Posts on screen are re-checked now (usually 0-token cache hits for a
       // threshold change); off-screen ones are re-checked when they scroll in.
       refreshVisible();
+      if (criteriaFingerprint(prev.filterCriteria, prev.whitelistCriteria) !==
+          criteriaFingerprint(config.filterCriteria, config.whitelistCriteria)) preloadHotDecisions();
     }
   }
 
@@ -287,7 +352,14 @@
       }
     });
     reportHiddenCount();
-    JevFB.log('info', 'CONFIG', 'Bộ lọc đã TẮT — đã hiển thị lại toàn bộ bài viết');
+    JevFB.log('info', 'CONFIG', 'logCfgOff');
+  }
+
+  /** Blur look, preset, or language changed while posts are already blurred. */
+  function blurPresentationChanged(prev, next) {
+    if (next.hideMode !== 'blur') return false;
+    return ['blurPreset', 'blurFlashcardTopic', 'blurCustomQuotes', 'blurRevealFriction', 'blurClassicStrength', 'blurClassicTint', 'language']
+      .some((key) => prev[key] !== next[key]);
   }
 
   function rerenderHiddenPosts() {
@@ -339,7 +411,8 @@
 
   function recreateViewportObserver(margin) {
     if (viewportObserver) viewportObserver.disconnect();
-    visible.clear();
+    // `visible` is NOT cleared: the new observer reports the initial state of
+    // every observed post, which corrects it without an empty window.
     viewportObserver = new IntersectionObserver(onViewportEntries, { rootMargin: margin });
     tracked.forEach(el => { if (el.isConnected) viewportObserver.observe(el); });
   }
@@ -411,11 +484,20 @@
     if (st.pending) return;
 
     const key = currentDecisionKey();
+    // Backend said "not configured" for these settings: nothing to retry until
+    // the key/criteria change. After an API error, back off per post.
+    if (st.skippedKey === key && !st.domDirty) return;
+    if (st.retryAt && performance.now() < st.retryAt) return;
+
     const domChanged = st.domDirty === true;
+    const forced = st.forceExtract === true; // e.g. late alt text (not in the signature)
     const sig = domChanged || st.sig === undefined || st.decidedKey !== key ? signatureOf(postEl) : st.sig;
     st.domDirty = false;
-    // Fast path: decided for the current settings and the card is unchanged
-    if (!domChanged && st.decidedKey === key && st.sig === sig) return;
+    st.forceExtract = false;
+    // Fast path: decided for the current settings and the card is unchanged.
+    // A dirty flag alone no longer forces re-extraction — the cheap signature
+    // decides (noisy mutations like timers/reactions leave it unchanged).
+    if (!forced && st.decidedKey === key && st.sig === sig) return;
 
     const postData = JevFB.extractPostData(postEl);
 
@@ -423,7 +505,7 @@
     if (!postData || postData.notReady) {
       if (st.retries < MAX_RETRIES) {
         st.retries++;
-        setTimeout(() => { if (visible.has(postEl)) evaluatePost(postEl); }, RETRY_DELAY_MS);
+        setTimeout(() => { if (tracked.has(postEl)) evaluatePost(postEl); }, RETRY_DELAY_MS);
       } else if (!postEl.dataset.jevStatus) {
         postEl.dataset.jevStatus = 'skipped';
       }
@@ -464,6 +546,18 @@
 
     if (criteriaTopics(config.filterCriteria).length === 0) {
       postEl.dataset.jevStatus = 'pending_criteria';
+      return;
+    }
+
+    const raw = localCache.get(`${postData.hash}_${currentCriteriaHash()}`);
+    if (raw) {
+      const hide = JevFB.shouldHideDecision(raw, config.confidenceThreshold);
+      const decision = { id: st.uid, shouldHide: hide, confidence: raw.confidence, violation: raw.violation, fromCache: true };
+      if (raw.reason) decision.reason = raw.reason;
+      if (raw.user) decision.user = true;
+      st.pending = true;
+      applyDecision({ element: postEl, state: st, data: postData, key }, decision, true);
+      reportLocalStats(hide);
       return;
     }
 
@@ -508,7 +602,9 @@
       blurPreset: config.blurPreset,
       blurFlashcardTopic: config.blurFlashcardTopic,
       blurCustomQuotes: config.blurCustomQuotes,
-      blurRevealFriction: config.blurRevealFriction
+      blurRevealFriction: config.blurRevealFriction,
+      blurClassicStrength: config.blurClassicStrength,
+      blurClassicTint: config.blurClassicTint
     };
   }
 
@@ -538,7 +634,7 @@
     // disabling the filter, or FB recycling the node (unhidePost).
     if (el.classList.contains('jev-revealed')) return;
 
-    if (st.interacted || clearSeenMs(st) >= CLEAR_SEEN_MS) {
+    if (DEFER_HIDE_WHEN_READING && (st.interacted || clearSeenMs(st) >= CLEAR_SEEN_MS)) {
       if (!st.pendingCollapse) reportDeferred();
       st.pendingCollapse = true;
       JevFB.applySoftLabel(el, decision, { criteria: config.filterCriteria, lang: config.language });
@@ -632,6 +728,7 @@
       author: c.data.author
     }));
 
+    currentBatch.forEach(c => inFlight.set(c.state.uid, c));
     let decisions = [];
     try {
       const res = await sendBatch(payload);
@@ -640,14 +737,32 @@
       // Context died mid-flight (reload between the guard above and the
       // response): an expected lifecycle event, not an error worth logging.
       if (!isContextAlive()) { shutdown(); return; }
-      console.warn('[JevFB] Lỗi gửi batch:', err && err.message);
+      console.warn('[JevFB] Batch send failed:', err && err.message);
     }
     const byId = new Map(decisions.map(d => [d.id, d]));
 
-    currentBatch.forEach(c => applyDecision(c, byId.get(c.state.uid)));
+    currentBatch.forEach(c => {
+      if (c.done) return; // already applied from a PARTIAL_DECISIONS push
+      inFlight.delete(c.state.uid);
+      applyDecision(c, byId.get(c.state.uid));
+    });
   }
 
-  function applyDecision(candidate, decision) {
+  // Cache hits are pushed by the worker before the API call for the other
+  // posts in the batch finishes, so they are applied without waiting for it.
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message && message.action === 'CACHE_CLEARED') { localCache.clear(); return; }
+    if (!message || message.action !== 'PARTIAL_DECISIONS' || !Array.isArray(message.decisions)) return;
+    message.decisions.forEach((d) => {
+      const c = inFlight.get(d.id);
+      if (!c || c.done) return;
+      c.done = true;
+      inFlight.delete(d.id);
+      applyDecision(c, d);
+    });
+  });
+
+  function applyDecision(candidate, decision, fromLocal = false) {
     const { element: el, state: st, key } = candidate;
     st.pending = false;
     JevFB.clearAnalyzingState(el);
@@ -664,8 +779,20 @@
     // post, keep it undecided so it is retried later (silently — already seen).
     if (!decision || decision.error || decision.skipped) {
       if (el.dataset.jevStatus === 'analyzing') delete el.dataset.jevStatus;
+      if (decision && decision.skipped) {
+        st.skippedKey = key; // wait for a settings change instead of re-asking every 4s
+      } else {
+        st.errCount = (st.errCount || 0) + 1;
+        const delay = Math.min(ERROR_BACKOFF_MAX_MS, ERROR_BACKOFF_BASE_MS * 2 ** (st.errCount - 1));
+        st.retryAt = performance.now() + delay;
+        // Retry when the backoff ends instead of waiting for the next slow re-check
+        setTimeout(() => { if (postState.get(el) === st && tracked.has(el)) evaluatePost(el); }, delay + 20);
+      }
       return;
     }
+    st.errCount = 0;
+    st.retryAt = 0;
+    st.skippedKey = undefined;
 
     // Settings changed while in flight — the refresh skipped this pending post, re-run it
     if (key !== currentDecisionKey()) {
@@ -678,6 +805,13 @@
     st.textLen = candidate.data.text.length;
     st.decidedKey = key;
     st.decision = decision;
+    if (!fromLocal && typeof decision.violation === 'boolean') {
+      const raw = { violation: decision.violation, confidence: decision.confidence };
+      if (Number.isFinite(decision.whitelistConfidence)) raw.whitelistConfidence = decision.whitelistConfidence;
+      if (decision.reason) raw.reason = decision.reason;
+      if (decision.user) raw.user = true;
+      rememberRaw(candidate.data.hash, raw);
+    }
 
     if (decision.shouldHide) {
       applyHideDecision(el, st);
@@ -708,6 +842,7 @@
     if (!st || !st.hash) return;
     const hash = st.hash;
     const override = { shouldHide: false, confidence: 0, user: true };
+    rememberRaw(hash, { violation: false, confidence: 0, user: true });
     tracked.forEach(el => {
       const other = postState.get(el);
       if (!other || other.hash !== hash) return;
@@ -745,20 +880,26 @@
    * @param {HTMLElement} el
    */
   function registerPostElement(el) {
-    // Belt: getAllPosts() already skips Messenger surfaces, but never track a
-    // chat element no matter which caller resolved it.
-    if (!el || tracked.has(el) || !viewportObserver || JevFB.isInChat(el)) return;
+    // Belt: getAllPosts() already keeps to the News Feed, but never track an
+    // element outside it (Messenger chat, right rail...) whichever caller resolved it.
+    if (!el || tracked.has(el) || !viewportObserver || !JevFB.isNewsFeedRoute() || !JevFB.isInFeedRegion(el)) return;
     tracked.add(el);
+    el.setAttribute('data-jev-tracked', '');
     viewportObserver.observe(el);
     readingZoneObserver.observe(el);
     if (typeof JevFB.resumeBlurEffects === 'function') JevFB.resumeBlurEffects(el);
     el.addEventListener('click', onPostInteraction, { capture: true, passive: true });
     el.addEventListener('focusin', onPostInteraction, true);
+    // Decide as soon as the post exists instead of waiting for the IO
+    // look-ahead: Facebook only renders a screen or two ahead, so little is
+    // spent on posts that are never seen. Past the cap the IO path takes over.
+    if (config.extensionEnabled && candidateQueue.length < EAGER_QUEUE_CAP) evaluatePost(el);
   }
 
   function unregisterPostElement(el) {
     tracked.delete(el);
     visible.delete(el);
+    el.removeAttribute('data-jev-tracked');
     if (typeof JevFB.suspendBlurEffects === 'function') JevFB.suspendBlurEffects(el);
     viewportObserver.unobserve(el);
     readingZoneObserver.unobserve(el);
@@ -779,11 +920,6 @@
   /** Extension reloaded/updated: this copy is orphaned — stop all work. */
   function isContextAlive() {
     try { return !!(chrome.runtime && chrome.runtime.id); } catch (_) { return false; }
-  }
-
-  /** Messenger full-page route (/messages/t/...) — no feed posts live here. */
-  function isMessengerRoute() {
-    return window.location.pathname.startsWith('/messages');
   }
 
   function onVisibilityChange() {
@@ -810,11 +946,14 @@
     clearTimeout(batchTimer);
     clearTimeout(badgeTimer);
     clearTimeout(deferredTimer);
+    clearTimeout(dirtyTimer);
+    clearTimeout(localStatsTimer);
     if (idleScanHandle !== null && typeof window.cancelIdleCallback === 'function') {
       window.cancelIdleCallback(idleScanHandle);
       idleScanHandle = null;
     }
     candidateQueue.length = 0;
+    inFlight.clear();
   }
 
   function addScanRoot(root) {
@@ -842,7 +981,7 @@
   function scanPendingRoots() {
     const roots = [...pendingScanRoots];
     pendingScanRoots.clear();
-    if (isMessengerRoute()) return;
+    if (!JevFB.isNewsFeedRoute()) return;
     roots.forEach(root => {
       if (root.isConnected) JevFB.getPostsWithin(root).forEach(registerPostElement);
     });
@@ -858,7 +997,7 @@
       fullScanRequested = false;
       lastFullScanAt = now;
       pendingScanRoots.clear();
-      if (!isMessengerRoute()) JevFB.getAllPosts().forEach(registerPostElement);
+      if (JevFB.isNewsFeedRoute()) JevFB.getAllPosts().forEach(registerPostElement);
     } else if (pendingScanRoots.size > 0) {
       scanPendingRoots();
     }
@@ -901,13 +1040,22 @@
     }, SCAN_THROTTLE_MS);
   }
 
+  // Posts whose content changed (text arriving after the skeleton) — evaluated
+  // after a short debounce rather than waiting for the idle-time scan.
+  const eagerDirty = new Set();
+  let dirtyTimer = null;
+  function flushDirty() {
+    dirtyTimer = null;
+    const posts = [...eagerDirty];
+    eagerDirty.clear();
+    posts.forEach(el => { if (tracked.has(el) && el.isConnected) evaluatePost(el); });
+  }
+
   function trackedPostFor(node) {
-    let el = node && (node.nodeType === 1 ? node : node.parentElement);
-    while (el && el !== document.body) {
-      if (tracked.has(el)) return el;
-      el = el.parentElement;
-    }
-    return null;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    // Native closest() instead of a JS ancestor walk to <body>
+    const post = el && el.closest('[data-jev-tracked]');
+    return post && tracked.has(post) ? post : null;
   }
 
   /**
@@ -916,24 +1064,40 @@
   function initEngine() {
     if (isEngineInitialized) return;
     isEngineInitialized = true;
-    JevFB.log('info', 'SCAN', 'Khởi động bộ lọc Jev AI trên trang Facebook', { path: window.location.pathname });
+    JevFB.log('info', 'SCAN', 'logScanStart', { path: window.location.pathname });
 
     setupViewportObserver();
+    preloadHotDecisions();
     JevFB.getAllPosts().forEach(registerPostElement);
     fullScanRequested = false;
     lastFullScanAt = Date.now();
 
+    const isOurNode = (n) => n.nodeType === 1 && n.classList.contains('jev-ui');
     mutationObserver = new MutationObserver((mutations) => {
       if (!config.extensionEnabled) return;
       let shouldScan = false;
+      const seenTargets = new Set(); // one lookup per distinct target per callback
       for (const m of mutations) {
-        const mutationTarget = m.target.nodeType === 1 ? m.target : m.target.parentElement;
-        const fromOurUi = !!(mutationTarget && mutationTarget.closest('.jev-ui'));
-        const existingPost = fromOurUi ? null : trackedPostFor(m.target);
-        if (existingPost) {
-          getState(existingPost).domDirty = true;
-          if (typeof JevFB.syncBlurAccessibility === 'function') JevFB.syncBlurAccessibility(existingPost);
-          shouldScan = true;
+        // Our own banner/blur inject or removal is not a Facebook change
+        if (m.type === 'childList' && (m.addedNodes.length + m.removedNodes.length) > 0 &&
+            [...m.addedNodes].every(isOurNode) && [...m.removedNodes].every(isOurNode)) continue;
+
+        if (!seenTargets.has(m.target)) {
+          seenTargets.add(m.target);
+          const mutationTarget = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+          const fromOurUi = !!(mutationTarget && mutationTarget.closest('.jev-ui'));
+          const existingPost = fromOurUi ? null : trackedPostFor(m.target);
+          if (existingPost) {
+            const pst = getState(existingPost);
+            pst.domDirty = true;
+            eagerDirty.add(existingPost);
+            if (m.type === 'attributes') pst.forceExtract = true;
+            if (typeof JevFB.syncBlurAccessibility === 'function') JevFB.syncBlurAccessibility(existingPost);
+            shouldScan = true;
+          }
+        } else if (m.type === 'attributes') {
+          const p = trackedPostFor(m.target);
+          if (p) getState(p).forceExtract = true;
         }
 
         if (m.addedNodes) {
@@ -944,9 +1108,15 @@
           }
         }
       }
+      // Runs as a microtask right after Facebook's DOM write, i.e. BEFORE the
+      // next paint: register new posts now (decisions from the local cache
+      // land in the same task, so a known-bad post is never painted).
+      if (pendingScanRoots.size > 0) scanPendingRoots();
+      if (eagerDirty.size > 0 && !dirtyTimer) dirtyTimer = setTimeout(flushDirty, DIRTY_FLUSH_MS);
       if (shouldScan) scheduleScan();
     });
-    mutationObserver.observe(document.body, {
+    // document_start: <body> may not exist yet, so watch the root element
+    mutationObserver.observe(document.documentElement, {
       childList: true,
       characterData: true,
       attributes: true,

@@ -193,12 +193,36 @@ window.JevFB = window.JevFB || {};
     postEl.classList.remove(
       'jev-post-collapsed', 'jev-revealed', 'jev-blurred-post', 'jev-blur-classic', 'jev-relative-anchor', 'jev-banner-slim'
     );
+    postEl.style.removeProperty('--jev-classic-blur');
+    postEl.style.removeProperty('--jev-classic-opacity');
+    postEl.style.removeProperty('--jev-classic-wash');
+    delete postEl.dataset.jevBlurKey;
     if (postEl.dataset.jevRemoved) {
       postEl.style.display = '';
       delete postEl.dataset.jevRemoved;
     }
     postEl.querySelectorAll(':scope > .jev-ui').forEach(n => n.remove());
   };
+
+  /** Preset, topic, quotes, reveal gesture, and language. Strength and tint are not included. */
+  function blurStructureKey(options) {
+    return [
+      options.blurPreset || 'classic',
+      options.blurFlashcardTopic || '',
+      options.blurCustomQuotes || '',
+      options.blurRevealFriction || 'instant',
+      options.lang || 'en'
+    ].join('\u001f');
+  }
+
+  function applyClassicBlurLook(postEl, options) {
+    const look = (typeof JevFB.classicBlurLook === 'function')
+      ? JevFB.classicBlurLook(options.blurClassicStrength, options.blurClassicTint)
+      : { px: 18, opacity: 0.72, wash: 'transparent' };
+    postEl.style.setProperty('--jev-classic-blur', `${look.px}px`);
+    postEl.style.setProperty('--jev-classic-opacity', String(look.opacity));
+    postEl.style.setProperty('--jev-classic-wash', look.wash);
+  }
 
   /**
    * Hide or collapse post based on Jev decision — this is the FINAL, visible
@@ -218,15 +242,26 @@ window.JevFB = window.JevFB || {};
     const t = JevFB.t || ((_l, _k, _p) => _k);
 
     // Already rendered in this mode (e.g. re-check confirmed it) — keep the
-    // user's reveal state untouched.
+    // user's reveal state untouched. A blur whose preset/quotes/language
+    // changed falls through and is rebuilt; strength and tint update in place.
+    if (postEl.classList.contains('jev-revealed') && postEl.dataset.jevHideMode === mode) return;
+
     if (postEl.dataset.jevStatus === 'hidden' && postEl.dataset.jevHideMode === mode) {
-      const desc = postEl.querySelector(':scope > .jev-ui .jev-banner-desc');
-      if (desc) {
-        const text = reasonText(decision, options, lang, t);
-        desc.textContent = text;
-        desc.title = options.criteria || '';
+      if (mode === 'blur') {
+        const overlay = postEl.querySelector(':scope > .jev-blur-canvas, :scope > .jev-blur-tag');
+        if (overlay && postEl.dataset.jevBlurKey === blurStructureKey(options)) {
+          if ((options.blurPreset || 'classic') === 'classic') applyClassicBlurLook(postEl, options);
+          return;
+        }
+      } else if (postEl.querySelector(':scope > .jev-ui')) {
+        const desc = postEl.querySelector(':scope > .jev-ui .jev-banner-desc');
+        if (desc) {
+          const text = reasonText(decision, options, lang, t);
+          desc.textContent = text;
+          desc.title = options.criteria || '';
+        }
+        return;
       }
-      return;
     }
 
     JevFB.unhidePost(postEl);
@@ -243,6 +278,7 @@ window.JevFB = window.JevFB || {};
     // Mode 2: Blur overlay
     if (mode === 'blur') {
       postEl.classList.add('jev-blurred-post');
+      postEl.dataset.jevBlurKey = blurStructureKey(options);
       isolateBlurredContent(postEl);
       JevFB.injectBlurControls(postEl, decision, options);
       return;
@@ -453,14 +489,18 @@ window.JevFB = window.JevFB || {};
 
     const lang = options.lang || 'en';
     const t = JevFB.t || ((_l, _k, _p) => _k);
-    const preset = options.blurPreset || 'zen';
+    const preset = options.blurPreset || 'classic';
     const friction = options.blurRevealFriction || 'instant';
 
     postEl.classList.add('jev-relative-anchor');
 
-    // 1. Classic Mode Fallback (for users who prefer the legacy pill)
+    // 1. Classic pill — blurred post, optional color wash, one action tag.
     if (preset === 'classic') {
       postEl.classList.add('jev-blur-classic');
+      applyClassicBlurLook(postEl, options);
+      const wash = document.createElement('div');
+      wash.className = 'jev-ui jev-classic-wash';
+      wash.setAttribute('aria-hidden', 'true');
       const tag = document.createElement('div');
       tag.className = 'jev-ui jev-blur-tag';
 
@@ -479,17 +519,16 @@ window.JevFB = window.JevFB || {};
       if (options && options.criteria) tag.title = options.criteria;
       bindMarkSafe(tag.querySelector('.jev-btn-safe'), postEl);
       bindRevealAction(tag.querySelector('.jev-btn-show'), postEl, tag, friction);
+      postEl.prepend(wash);
       postEl.prepend(tag);
       return;
     }
 
     // 2. In-place canvas overlay (Zen Oasis, AI X-Ray, Flashcard)
     const canvas = document.createElement('div');
-    const initialHeight = postEl.offsetHeight;
-    const isCompact = initialHeight > 0 && initialHeight < 220;
-    const isMinimal = initialHeight > 0 && initialHeight < 130;
-    canvas.className = 'jev-ui jev-blur-canvas jev-blur-tag' + (isCompact ? ' jev-canvas-compact' : '');
-    if (isMinimal) canvas.classList.add('jev-canvas-minimal');
+    // No synchronous offsetHeight read (forces reflow right after DOM writes):
+    // canvasResizeObserver sets the compact/minimal classes on its first callback.
+    canvas.className = 'jev-ui jev-blur-canvas jev-blur-tag';
     canvas.setAttribute('role', 'region');
     canvas.setAttribute('aria-label', t(lang, 'zenProtectedTag') || 'ZenFeed Protected');
 
@@ -521,8 +560,9 @@ window.JevFB = window.JevFB || {};
       const xrayWidget = document.createElement('div');
       xrayWidget.className = 'jev-xray-widget';
       const detail = reasonText(decision, options, lang, t);
+      const xrayTag = t(lang, 'blurPresetXrayTag') || t(lang, 'blurPresetXray');
       xrayWidget.innerHTML = `
-        <span class="jev-xray-tag">⚡ ${escapeHtml(t(lang, 'blurPresetXray'))}</span>
+        <span class="jev-xray-tag">⚡ ${escapeHtml(xrayTag)}</span>
         <div class="jev-xray-reason">${escapeHtml(detail)}</div>
       `;
       cardBody.appendChild(xrayWidget);
@@ -561,21 +601,35 @@ window.JevFB = window.JevFB || {};
       const quoteContainer = document.createElement('div');
       quoteContainer.className = 'jev-zen-quote-container';
 
-      const quoteObj = (JevFB.zenData && typeof JevFB.zenData.getRandomQuote === 'function')
-        ? JevFB.zenData.getRandomQuote(lang, options.blurCustomQuotes)
-        : { text: "Take a deep breath. This space is reserved for your peace of mind.", author: "ZenFeed" };
+      const renderQuote = () => {
+        const quoteObj = (JevFB.zenData && typeof JevFB.zenData.getRandomQuote === 'function')
+          ? JevFB.zenData.getRandomQuote(lang, options.blurCustomQuotes)
+          : { text: "Take a deep breath. This space is reserved for your peace of mind.", author: "ZenFeed" };
 
-      const quoteText = document.createElement('div');
-      quoteText.className = 'jev-zen-quote-text';
-      // Anti-XSS: textContent ensures arbitrary user custom quotes cannot execute script
-      quoteText.textContent = `"${quoteObj.text}"`;
+        quoteContainer.innerHTML = '';
+        const quoteText = document.createElement('div');
+        quoteText.className = 'jev-zen-quote-text';
+        // Anti-XSS: textContent ensures arbitrary user custom quotes cannot execute script
+        quoteText.textContent = `"${quoteObj.text}"`;
 
-      const quoteAuthor = document.createElement('div');
-      quoteAuthor.className = 'jev-zen-quote-author';
-      quoteAuthor.textContent = quoteObj.author ? `— ${quoteObj.author}` : '';
+        const quoteAuthor = document.createElement('div');
+        quoteAuthor.className = 'jev-zen-quote-author';
+        quoteAuthor.textContent = quoteObj.author ? `— ${quoteObj.author}` : '';
 
-      quoteContainer.appendChild(quoteText);
-      if (quoteObj.author) quoteContainer.appendChild(quoteAuthor);
+        const nextQuoteBtn = document.createElement('button');
+        nextQuoteBtn.type = 'button';
+        nextQuoteBtn.className = 'jev-btn-next-quote';
+        nextQuoteBtn.innerHTML = `🔄 ${escapeHtml(t(lang, 'btnNextQuote') || 'Đổi câu khác')}`;
+        nextQuoteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          renderQuote();
+        });
+
+        quoteContainer.appendChild(quoteText);
+        if (quoteObj.author) quoteContainer.appendChild(quoteAuthor);
+        quoteContainer.appendChild(nextQuoteBtn);
+      };
+      renderQuote();
 
       zenWidget.appendChild(breatheRing);
       zenWidget.appendChild(quoteContainer);

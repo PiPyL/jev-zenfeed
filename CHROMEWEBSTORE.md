@@ -1,7 +1,7 @@
 # Chrome Web Store Listing — ZenFeed
 
 > Last Updated: 2026-09-23
-> Version: 1.0.0
+> Version: 1.0.1
 > Extension ID: Pending Chrome Web Store upload
 
 ---
@@ -106,13 +106,13 @@ Khi submit trên Developer Dashboard, Google yêu cầu giải trình cho từng
 |---|---|
 | `*://*.facebook.com/*` | Essential for the core functionality: allows the extension content script to detect feed post elements, extract public post text for filtering against user-defined criteria, and apply visual hiding/blur overlays. |
 | `https://api.typesafe.ai/*` | Required to communicate with the default TypeSafe AI Jev decision API to evaluate post snippets against the user's content filter criteria. |
-| `http://localhost/*` & `http://127.0.0.1/*` | Used exclusively for developers and advanced users who choose to run a local mock evaluation server or self-hosted local model endpoint (e.g., Ollama or custom test mock). |
 
 ### Optional Host Permissions
 
 | Host Pattern | Justification (Copy vào form CWS) |
 |---|---|
-| `https://*/*` & `http://*/*` | Enables power users to configure custom AI proxy gateways or self-hosted API endpoints in the Advanced Settings tab. Access to a specific custom origin is only requested dynamically with an explicit user gesture (clicking 'Test Connection'). |
+| `https://*/*` | Enables power users to configure a custom HTTPS AI proxy gateway in the Advanced Settings tab. Access to a specific origin is only requested dynamically with an explicit user gesture (clicking 'Test Connection'). |
+| `http://localhost/*` & `http://127.0.0.1/*` | Used only if a developer or advanced user chooses to run a local mock or self-hosted model server (e.g. Ollama). Plain http is accepted for these local addresses only, and access is requested on demand after a user click. |
 
 ---
 
@@ -146,4 +146,5 @@ Bắt buộc tích chọn chính xác trên CWS Dashboard:
 
 | Version | Date | Changes | Status |
 |---|---|---|---|
-| 1.0.0 | 2026-09-23 | Initial Chrome Web Store release candidate with Manifest V3, multi-language support, Zen blur modes, and zero-CLS feed handling. | In Preparation |
+| 1.0.1 | 2026-09-23 | Classic blur customization with radius slider & color tint swatches, expanded Zen quotes & IELTS/tech flashcards, IntersectionObserver animation performance optimization, and refined optional permissions. | In Preparation |
+| 1.0.0 | 2026-09-23 | Initial Chrome Web Store release candidate with Manifest V3, multi-language support, Zen blur modes, and zero-CLS feed handling. | Archived |

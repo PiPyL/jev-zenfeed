@@ -9,6 +9,8 @@
  * each flush is a single write (no read-modify-write).
  */
 
+import './i18n.js'; // side-effect import registers self.__jevI18n
+
 const MAX_LOGS = 150;
 const STORAGE_KEY = 'jevLogs';
 
@@ -71,8 +73,27 @@ export function addLog(entry) {
 
 const LEVELS = new Set(['info', 'success', 'warn', 'error', 'ai']);
 
-function buildLogItem({ level = 'info', tag = 'INFO', message = '', details = null }) {
+// A log line may carry an i18n `key` + `params` instead of fixed text: the
+// popup translates it into the CURRENT UI language when rendering. `message`
+// always holds the English rendering (fallback / copy / tests).
+function sanitizeParams(params) {
+  const out = {};
+  if (params && typeof params === 'object') {
+    Object.keys(params).slice(0, 8).forEach((k) => {
+      const v = params[k];
+      if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+      else if (typeof v === 'string') out[k] = v.slice(0, 200);
+    });
+  }
+  return out;
+}
+
+function buildLogItem({ level = 'info', tag = 'INFO', message = '', details = null, key = null, params = null }) {
   const safeLevel = LEVELS.has(level) ? level : 'info';
+  const i18n = self.__jevI18n;
+  const validKey = typeof key === 'string' && i18n && Object.prototype.hasOwnProperty.call(i18n.MESSAGES.en, key);
+  const safeParams = validKey ? sanitizeParams(params) : null;
+  if (validKey) message = i18n.t('en', key, safeParams);
   const logItem = {
     id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     time: formatTime(),
@@ -82,6 +103,7 @@ function buildLogItem({ level = 'info', tag = 'INFO', message = '', details = nu
     message: String(message),
     details: details ? (typeof details === 'object' ? JSON.stringify(details) : String(details)) : null
   };
+  if (validKey) { logItem.key = key; logItem.params = safeParams; }
 
   const prefix = `[Jev ${logItem.tag}]`;
   const out = safeLevel === 'error' ? console.error : safeLevel === 'warn' ? console.warn : console.log;

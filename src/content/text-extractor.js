@@ -38,12 +38,14 @@ window.JevFB = window.JevFB || {};
   function isExcluded(node, postEl) {
     if (node.closest('.jev-ui, form, [role="toolbar"], [role="menu"], [aria-hidden="true"]')) return true;
 
-    // Comments are rendered as nested role="article" blocks (usually inside ul/li)
-    let el = node.parentElement;
-    while (el && el !== postEl) {
-      if (el.tagName === 'UL' || el.tagName === 'LI') return true;
-      if (el.getAttribute('role') === 'article' && COMMENT_LABEL.test(el.getAttribute('aria-label') || '')) return true;
-      el = el.parentElement;
+    // Comments are rendered as nested role="article" blocks (usually inside
+    // ul/li). Native closest() keeps this O(depth) in C++ instead of a JS walk.
+    const list = node.closest('ul, li');
+    if (list && list !== postEl && postEl.contains(list)) return true;
+    let art = node.closest('[role="article"]');
+    while (art && art !== postEl && postEl.contains(art)) {
+      if (COMMENT_LABEL.test(art.getAttribute('aria-label') || '')) return true;
+      art = art.parentElement && art.parentElement.closest('[role="article"]');
     }
     return false;
   }
@@ -65,7 +67,7 @@ window.JevFB = window.JevFB || {};
       const text = (el.textContent || '').trim();
       if (text) return text.split('\n')[0].trim();
     }
-    return 'Người dùng Facebook';
+    return 'Facebook User';
   }
 
   /**
@@ -103,7 +105,7 @@ window.JevFB = window.JevFB || {};
       if (!alt || alt.length < 4 || GENERIC_ALT.test(alt) || isExcluded(img, postEl)) continue;
       if (!seen.has(alt)) {
         seen.add(alt);
-        parts.push(`[Hình ảnh: ${alt.slice(0, 150)}]`);
+        parts.push(`[Image: ${alt.slice(0, 150)}]`);
       }
     }
 

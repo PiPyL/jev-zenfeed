@@ -961,6 +961,193 @@ textarea {
   box-shadow: 0 0 0 2px rgba(127, 168, 148, 0.2);
 }
 
+.classic-look {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.classic-look.hidden {
+  display: none !important;
+}
+
+.classic-look-head,
+.classic-control-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.classic-look-head {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.classic-reset {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.classic-reset:hover {
+  text-decoration: underline;
+}
+
+.classic-preview {
+  --preview-blur: 18px;
+  --preview-opacity: 0.72;
+  --preview-wash: transparent;
+  position: relative;
+  height: 72px;
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(24, 119, 242, 0.16), transparent 42%),
+    var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.classic-preview-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 0 14px;
+  /* The preview is only ~72px tall, so the full feed blur radius would erase it.
+     Scale it down; Nhẹ / Vừa / Đậm still track the real setting. */
+  filter: blur(calc(var(--preview-blur) * 0.22));
+  opacity: var(--preview-opacity);
+}
+
+.classic-preview-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f7b733, #fc4a1a);
+  flex: 0 0 auto;
+}
+
+.classic-preview-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.classic-preview-line {
+  display: block;
+  height: 8px;
+  width: 92%;
+  border-radius: 4px;
+  background: #5c6370;
+}
+
+.classic-preview-line.short {
+  width: 58%;
+}
+
+.classic-preview-wash {
+  position: absolute;
+  inset: 0;
+  background: var(--preview-wash);
+  pointer-events: none;
+}
+
+.classic-preview-pill {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - 24px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(18, 20, 24, 0.88);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.classic-control-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.classic-hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.classic-look input[type="range"] {
+  width: 100%;
+  margin: 2px 0 0;
+  accent-color: #7fa894;
+}
+
+.classic-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.swatch[data-tint="#1c1e21"] { background: #1c1e21; }
+.swatch[data-tint="#f5f6f7"] { background: #f5f6f7; }
+.swatch[data-tint="#1877f2"] { background: #1877f2; }
+.swatch[data-tint="#7fa894"] { background: #7fa894; }
+
+.swatch[data-tint=""] {
+  background:
+    linear-gradient(135deg, transparent 45%, #c5c9d0 45%, #c5c9d0 55%, transparent 55%),
+    var(--card-bg);
+}
+
+.swatch.is-selected {
+  box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--primary);
+}
+
+.swatch:focus-visible,
+.classic-reset:focus-visible,
+.classic-look input[type="range"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.swatch-custom {
+  display: grid;
+  place-items: center;
+  background: conic-gradient(#fa383e, #f5a623, #31a24c, #1877f2, #a855f7, #fa383e);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.swatch-custom input[type="color"] {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
 /* Open Source Footer */
 .popup-footer {
   margin-top: 4px;

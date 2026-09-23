@@ -34,16 +34,72 @@
     // localize the on-page banner to match the popup.
     language: 'en',
     // Blur Mode Customization (Canvas & Digital Sanctuary)
-    blurPreset: 'zen', // 'zen' | 'xray' | 'flashcard' | 'classic'
+    blurPreset: 'classic', // 'classic' | 'zen' | 'xray' | 'flashcard'
     blurFlashcardTopic: 'ielts', // 'ielts' | 'tech' | 'quotes'
     blurCustomQuotes: '', // custom newline-separated quotes
-    blurRevealFriction: 'instant' // 'instant' | 'hold'
+    blurRevealFriction: 'instant', // 'instant' | 'hold'
+    // Classic pill blur. Strength is the CSS blur radius in px (6–32).
+    // Tint is '' (no wash) or a #rrggbb color laid over the blurred post.
+    blurClassicStrength: 18,
+    blurClassicTint: ''
   });
 
   const PUBLIC_SETTING_KEYS = Object.freeze([
     'extensionEnabled', 'filterCriteria', 'whitelistCriteria', 'confidenceThreshold', 'hideMode', 'filterMode', 'language',
-    'blurPreset', 'blurFlashcardTopic', 'blurCustomQuotes', 'blurRevealFriction'
+    'blurPreset', 'blurFlashcardTopic', 'blurCustomQuotes', 'blurRevealFriction',
+    'blurClassicStrength', 'blurClassicTint'
   ]);
+
+  const BLUR_CLASSIC_STRENGTH_MIN = 6;
+  const BLUR_CLASSIC_STRENGTH_MAX = 32;
+
+  /**
+   * Clamp the classic-blur radius to the slider's even steps.
+   * @param {unknown} value
+   * @returns {number}
+   */
+  function clampClassicStrength(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return DEFAULT_SETTINGS.blurClassicStrength;
+    const stepped = Math.round(n / 2) * 2;
+    return Math.min(BLUR_CLASSIC_STRENGTH_MAX, Math.max(BLUR_CLASSIC_STRENGTH_MIN, stepped));
+  }
+
+  /**
+   * Accept only #rgb / #rrggbb. Anything else means "no tint".
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function normalizeClassicTint(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw || raw === 'none' || raw === 'transparent') return '';
+    const hex = raw.charAt(0) === '#' ? raw : `#${raw}`;
+    if (/^#[0-9a-f]{6}$/.test(hex)) return hex;
+    if (/^#[0-9a-f]{3}$/.test(hex)) {
+      return `#${hex.charAt(1)}${hex.charAt(1)}${hex.charAt(2)}${hex.charAt(2)}${hex.charAt(3)}${hex.charAt(3)}`;
+    }
+    return '';
+  }
+
+  function hexToRgba(hex, alpha) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
+
+  /**
+   * Resolved classic-blur look. Opacity tracks strength so "more blur" also
+   * hides more, while 18px stays at the previous 0.72 veil.
+   * @param {unknown} strength
+   * @param {unknown} tint
+   * @returns {{px: number, opacity: number, tint: string, wash: string}}
+   */
+  function classicBlurLook(strength, tint) {
+    const px = clampClassicStrength(strength);
+    const span = BLUR_CLASSIC_STRENGTH_MAX - BLUR_CLASSIC_STRENGTH_MIN;
+    const opacity = Math.round((0.92 - ((px - BLUR_CLASSIC_STRENGTH_MIN) / span) * 0.44) * 100) / 100;
+    const color = normalizeClassicTint(tint);
+    return { px, opacity, tint: color, wash: color ? hexToRgba(color, 0.42) : 'transparent' };
+  }
 
   // ASCII comma/semicolon plus the ideographic list marks used by zh/ja presets.
   const TOPIC_SPLIT = /[\n,;、，；]+/;
@@ -125,16 +181,28 @@
     return wlFp ? `${critFp}#wl:${wlFp}` : critFp;
   }
 
+  // Mirrors shouldHidePost/whitelistExempts in background/jev-client.js: the
+  // content script re-gates a cached RAW verdict against the current threshold.
+  const WHITELIST_THRESHOLD = 70;
+  function shouldHideDecision(raw, threshold) {
+    if (!raw || raw.violation !== true || !(raw.confidence >= threshold)) return false;
+    const w = raw.whitelistConfidence;
+    return !(Number.isFinite(w) && w >= WHITELIST_THRESHOLD && w >= raw.confidence);
+  }
+
   if (root) {
     root.JevFB = root.JevFB || {};
+    root.JevFB.shouldHideDecision = shouldHideDecision;
     root.JevFB.DEFAULT_SETTINGS = DEFAULT_SETTINGS;
     root.JevFB.PUBLIC_SETTING_KEYS = PUBLIC_SETTING_KEYS;
     root.JevFB.criteriaTopics = criteriaTopics;
     root.JevFB.filterTopics = filterTopics;
     root.JevFB.exceptionTopics = exceptionTopics;
     root.JevFB.criteriaFingerprint = criteriaFingerprint;
+    root.JevFB.classicBlurLook = classicBlurLook;
     root.__jevDefaults = {
-      DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, filterTopics, exceptionTopics, criteriaFingerprint
+      DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, filterTopics, exceptionTopics, criteriaFingerprint,
+      classicBlurLook
     };
   }
 })(typeof self !== 'undefined' ? self : globalThis);

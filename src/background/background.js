@@ -221,7 +221,7 @@ chrome.runtime.onInstalled.addListener(async () => {
       if (cs.css?.length) await chrome.scripting.insertCSS({ target, files: cs.css });
       await chrome.scripting.executeScript({ target, files: cs.js });
     } catch (err) {
-      console.warn('[Jev] Không inject được vào tab', tab.id, err && err.message);
+      console.warn('[Jev] Could not inject into tab', tab.id, err && err.message);
     }
   }
 });
@@ -239,8 +239,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'TEST_API_KEY':
       testApiKey(message.apiKey, message.apiUrl, message.lang || settings.language).then((res) => {
         addLog(res.success
-          ? { level: 'success', tag: 'KEY', message: `Xác thực API Key thành công với ${message.apiUrl || 'TypeSafe AI'}` }
-          : { level: 'error', tag: 'KEY', message: `Xác thực thất bại: ${res.error || 'Không hợp lệ'}` });
+          ? { level: 'success', tag: 'KEY', key: 'logKeyOk', params: { endpoint: String(message.apiUrl || 'TypeSafe AI') } }
+          : { level: 'error', tag: 'KEY', key: 'logKeyFail', params: { error: String(res.error || 'Invalid') } });
         if (res.success) {
           apiCooldownUntil = 0; // connectivity confirmed — allow immediate retries
           apiFailing = false;
@@ -251,7 +251,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'EVALUATE_BATCH':
-      handleBatchEvaluation(message.items).then(sendResponse, (err) => {
+      handleBatchEvaluation(message.items, makePartialSender(sender)).then(sendResponse, (err) => {
         console.error('[Jev] handleBatchEvaluation failed:', err);
         sendResponse((message.items || []).map(it => ({ id: it.id, shouldHide: false, confidence: 0, error: true })));
       });
@@ -277,7 +277,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // their results must not repopulate the cache after this clear.
       inflight.clear();
       decisionCache.clear().then(() => {
-        addLog({ level: 'info', tag: 'CACHE', message: 'Đã xóa toàn bộ bộ nhớ đệm (Cache)!' });
+        // Tabs keep a local copy of hot decisions — drop those too
+        chrome.tabs.query({ url: chrome.runtime.getManifest().content_scripts[0].matches }).then((tabs) => {
+          tabs.forEach(tab => chrome.tabs.sendMessage(tab.id, { action: 'CACHE_CLEARED' }).catch(() => {}));
+        }).catch(() => {});
+        addLog({ level: 'info', tag: 'CACHE', key: 'logCacheCleared' });
         sendResponse({ success: true });
       }, () => sendResponse({ success: false }));
       return true;
@@ -290,8 +294,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       clearLogs().then(sendResponse);
       return true;
 
+    case 'GET_HOT_DECISIONS':
+      settingsReady.then(async () => {
+        const criteriaHash = criteriaKeyHash();
+        const entries = await decisionCache.recent(`_${criteriaHash}`, 500);
+        sendResponse({ criteriaHash, entries });
+      }).catch(() => sendResponse({ criteriaHash: '', entries: [] }));
+      return true;
+
+    case 'LOCAL_STATS':
+      // Decisions the content script resolved from its own local cache
+      if (Number.isInteger(message.scanned) && message.scanned > 0) {
+        recordStats(message.scanned, Math.max(0, message.hidden | 0), message.scanned);
+      }
+      return false;
+
     case 'LOG_EVENT':
-      addLog(message.log || {}); // fire-and-forget, no response needed
+      { // fire-and-forget; only i18n keys + params are accepted from content scripts
+        const log = message.log || {};
+        addLog({ level: log.level, tag: log.tag, key: log.key, params: log.params, details: log.details });
+      }
       return false;
   }
 });
@@ -310,13 +332,31 @@ async function markSafe(message, sender) {
   if (!/^[0-9a-f]{1,16}$/.test(hash)) return { success: false };
   await settingsReady;
   decisionCache.set(`${hash}_${criteriaKeyHash()}`, { violation: false, confidence: 0, user: true });
-  const author = typeof message.author === 'string' ? message.author.slice(0, 80) : 'Người dùng';
-  addLog({ level: 'info', tag: 'PHẢN HỒI', message: `Đã đánh dấu "ẩn nhầm" bài của "${author}" — sẽ không ẩn lại.` });
+  const author = typeof message.author === 'string' ? message.author.slice(0, 80) : 'Facebook User';
+  addLog({ level: 'info', tag: 'FEEDBACK', key: 'logFeedback', params: { author } });
   if (sender.tab) recordStats(0, -1, 0);
   return { success: true };
 }
 
 // ==================== BATCH EVALUATION ====================
+
+/**
+ * Push cache-hit decisions to the requesting tab as soon as they are known,
+ * so they never wait for the API call made for the other posts of the batch.
+ * The final response still carries every item; the content script ignores
+ * ids it already applied.
+ */
+function makePartialSender(sender) {
+  if (!sender.tab || !chrome.tabs || !chrome.tabs.sendMessage) return null;
+  const opts = Number.isInteger(sender.frameId) ? { frameId: sender.frameId } : undefined;
+  return (decisions) => {
+    if (decisions.length === 0) return;
+    try {
+      const p = chrome.tabs.sendMessage(sender.tab.id, { action: 'PARTIAL_DECISIONS', decisions }, opts);
+      if (p && p.catch) p.catch(() => {});
+    } catch (_) {}
+  };
+}
 
 // Requests currently on the wire, keyed by cache key. A post that appears in
 // several batches/tabs at once (same ad twice, two tabs) is only paid for once.
@@ -324,10 +364,14 @@ const inflight = new Map();
 const MAX_CONCURRENT_API_REQUESTS = 2;
 let activeApiRequests = 0;
 const apiRequestQueue = [];
+const MAX_QUEUE_WAIT_MS = 9000; // content script times out at 12s
 
 function drainApiRequestQueue() {
   while (activeApiRequests < MAX_CONCURRENT_API_REQUESTS && apiRequestQueue.length > 0) {
     const job = apiRequestQueue.shift();
+    // The content script gave up on this request long ago — don't spend an
+    // API call (and a slot) on results nobody is waiting for.
+    if (Date.now() - job.queuedAt > MAX_QUEUE_WAIT_MS) { job.resolve(job.expire()); continue; }
     activeApiRequests++;
     Promise.resolve().then(job.run).then(job.resolve, job.reject).finally(() => {
       activeApiRequests--;
@@ -336,9 +380,9 @@ function drainApiRequestQueue() {
   }
 }
 
-function queueApiRequest(run) {
+function queueApiRequest(run, expire) {
   return new Promise((resolve, reject) => {
-    apiRequestQueue.push({ run, resolve, reject });
+    apiRequestQueue.push({ run, expire, resolve, reject, queuedAt: Date.now() });
     drainApiRequestQueue();
   });
 }
@@ -348,7 +392,7 @@ function queueApiRequest(run) {
 const API_COOLDOWN_MS = 10000;
 let apiCooldownUntil = 0;
 
-const author = (item) => item.author || 'Người dùng';
+const author = (item) => item.author || 'Facebook User';
 
 /**
  * Process a batch of post candidates from Content Script.
@@ -359,7 +403,7 @@ const author = (item) => item.author || 'Người dùng';
  * `skipped` = filter not configured/disabled (re-check once configured).
  * @param {Array<{id: string, hash: string, text: string, author?: string}>} items
  */
-async function handleBatchEvaluation(items) {
+async function handleBatchEvaluation(items, onPartial = null) {
   if (!Array.isArray(items) || items.length === 0) return [];
   await settingsReady;
   const config = { ...settings };
@@ -372,7 +416,7 @@ async function handleBatchEvaluation(items) {
     warnThrottled('no-key', {
       level: 'warn',
       tag: 'WARN',
-      message: '⚠️ CHƯA CÓ API KEY: Chưa thể lọc bài viết. Vui lòng nhập TypeSafe Jev API Key hoặc bật Mock Server trong Popup.'
+      key: 'logNoKey'
     });
     return skippedAll();
   }
@@ -381,7 +425,7 @@ async function handleBatchEvaluation(items) {
     warnThrottled('no-criteria', {
       level: 'warn',
       tag: 'WARN',
-      message: 'Chưa có tiêu chí lọc bài viết. Vui lòng thiết lập trong Popup.'
+      key: 'logNoCriteria'
     });
     return skippedAll();
   }
@@ -420,6 +464,15 @@ async function handleBatchEvaluation(items) {
     }
   }
 
+  if (onPartial && cacheHits > 0) {
+    const early = [];
+    for (const item of items) {
+      const hit = cached.get(keyOf(item));
+      if (hit) early.push(buildResult(item.id, { ...hit, fromCache: true }, threshold));
+    }
+    onPartial(early);
+  }
+
   if (toFetch.size > 0) {
     const sending = [...toFetch.values()];
     const apiPromise = queueApiRequest(() => {
@@ -433,12 +486,15 @@ async function handleBatchEvaluation(items) {
       return evaluateWithJev(config.apiKey, config.apiUrl, sending, config.filterCriteria, threshold, config.whitelistCriteria)
         .then((results) => {
           logApiBatch(results, sending, threshold, Date.now() - startedAt);
-          if (results.some(r => r.error) && Date.now() >= apiCooldownUntil) {
+          // Cooldown only for a whole-call failure (network/HTTP). A single
+          // unparsable answer must not stall filtering of every other post.
+          if (results.length > 0 && results.every(r => r.error) && Date.now() >= apiCooldownUntil) {
             apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+            if (!apiFailing) { apiFailing = true; updateHealth(); }
           }
           return results;
         });
-    });
+    }, () => sending.map(it => ({ id: it.id, error: true })));
 
     const byId = apiPromise.then((results) => new Map(results.map(r => [r.id, r])));
 
@@ -462,17 +518,7 @@ async function handleBatchEvaluation(items) {
 
   // Resolve every item (duplicates share their representative's decision)
   const results = await Promise.all(items.map(async (item) => {
-    const raw = await pendingByKey.get(keyOf(item));
-    if (raw.error) return { id: item.id, shouldHide: false, confidence: 0, error: true };
-    const result = {
-      id: item.id,
-      shouldHide: shouldHidePost(raw.violation === true, raw.confidence, threshold, raw.whitelistConfidence),
-      confidence: raw.confidence,
-      fromCache: raw.fromCache === true
-    };
-    if (raw.reason) result.reason = raw.reason;
-    if (raw.user) result.user = true;
-    return result;
+    return buildResult(item.id, await pendingByKey.get(keyOf(item)), threshold);
   }));
 
   if (generationAtStart !== decisionCache.getGeneration()) {
@@ -482,25 +528,38 @@ async function handleBatchEvaluation(items) {
   // Logging never blocks the response
   const errorCount = results.filter(r => r.error).length;
   if (errorCount > 0) {
-    if (Date.now() >= apiCooldownUntil) {
-      apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
-      addLog({
-        level: 'error',
-        tag: 'ERROR',
-        message: `⚠️ Không đánh giá được ${errorCount} bài viết (lỗi kết nối/API) — KHÔNG lưu cache, sẽ thử lại sau ${API_COOLDOWN_MS / 1000}s.`
-      });
-    }
-    if (!apiFailing) { apiFailing = true; updateHealth(); }
+    warnThrottled('eval-error', {
+      level: 'error',
+      tag: 'ERROR',
+      key: 'logEvalError',
+      params: { n: errorCount }
+    }, API_COOLDOWN_MS);
   }
 
   const decided = results.filter(r => !r.error);
   const cacheHidden = decided.filter(r => r.shouldHide && r.fromCache).length;
   if (cacheHidden > 0) {
-    addLog({ level: 'success', tag: 'CACHE', message: `⚡ Ẩn ${cacheHidden} bài từ cache (0 token)` });
+    addLog({ level: 'success', tag: 'CACHE', key: 'logCacheHidden', params: { n: cacheHidden } });
   }
   recordStats(decided.length, decided.filter(r => r.shouldHide).length, cacheHits);
 
   return results;
+}
+
+function buildResult(id, raw, threshold) {
+  if (raw.error) return { id, shouldHide: false, confidence: 0, error: true };
+  const result = {
+    id,
+    shouldHide: shouldHidePost(raw.violation === true, raw.confidence, threshold, raw.whitelistConfidence),
+    confidence: raw.confidence,
+    // raw verdict: lets the content script re-gate it locally (threshold/whitelist)
+    violation: raw.violation === true,
+    fromCache: raw.fromCache === true
+  };
+  if (Number.isFinite(raw.whitelistConfidence)) result.whitelistConfidence = raw.whitelistConfidence;
+  if (raw.reason) result.reason = raw.reason;
+  if (raw.user) result.user = true;
+  return result;
 }
 
 /**
@@ -516,15 +575,17 @@ function logApiBatch(results, sent, threshold, ms) {
   hidden.forEach((r) => {
     addLog({
       level: 'success',
-      tag: 'ẨN BÀI',
-      message: `🛡️ [ĐÃ ẨN] "${author(byId.get(r.id) || {})}"${r.reason ? `: ${r.reason}` : ''} (Độ tin cậy ${r.confidence}%)`
+      tag: 'HIDDEN',
+      key: r.reason ? 'logHiddenReason' : 'logHidden',
+      params: { author: author(byId.get(r.id) || {}), reason: r.reason || '', pct: r.confidence }
     });
   });
   if (ok.length > 0) {
     addLog({
       level: 'ai',
       tag: 'JEV-AI',
-      message: `Jev đã duyệt ${ok.length} bài trong ${ms}ms: ${hidden.length} ẩn, ${ok.length - hidden.length} an toàn`
+      key: 'logBatch',
+      params: { n: ok.length, ms, hidden: hidden.length, safe: ok.length - hidden.length }
     });
   }
 }

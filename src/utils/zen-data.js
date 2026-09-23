@@ -21,7 +21,22 @@
       { text: "Sự hiện diện trong giây phút này là báu vật quý giá nhất.", author: "Eckhart Tolle" },
       { text: "Thả lỏng vai, thả lỏng trán, mỉm cười nhẹ và tiếp tục ngày tuyệt vời của bạn.", author: "Mindful Living" },
       { text: "Thế giới sẽ không ngừng huyên náo, việc của bạn là giữ cho mình sự an yên.", author: "Khuyết danh" },
-      { text: "Bảo vệ sự tập trung của bạn như bảo vệ tài sản quý giá nhất.", author: "Cal Newport" }
+      { text: "Bảo vệ sự tập trung của bạn như bảo vệ tài sản quý giá nhất.", author: "Cal Newport" },
+      { text: "Hạnh phúc không nằm ở việc có nhiều thứ để xem, mà ở việc biết điều gì đáng để nhìn.", author: "Naval Ravikant" },
+      { text: "Kho báu lớn nhất của đời người là một tâm trí không bị xáo trộn.", author: "Khuyết danh" },
+      { text: "Khi bạn không phản ứng với những điều khiêu khích, bạn nắm quyền làm chủ chính mình.", author: "Epictetus" },
+      { text: "Bớt một mối bận tâm, lòng thêm một phần thong dong.", author: "Thiền ngữ" },
+      { text: "Đừng vội vã. Cây sồi mất cả trăm năm để lớn lên trong tĩnh lặng.", author: "Ralph Waldo Emerson" },
+      { text: "Sự bình thản bên trong là lá chắn vững chắc nhất trước sóng gió bên ngoài.", author: "Khuyết danh" },
+      { text: "Biết đủ là giàu có, biết dừng là khôn ngoan.", author: "Lão Tử" },
+      { text: "Tâm không vướng bận việc trần gian, ấy là mùa xuân đẹp nhất đời người.", author: "Vô Môn Huệ Khai" },
+      { text: "Hít vào tĩnh lặng, thở ra buông bỏ. Hiện tại là tất cả những gì bạn cần.", author: "Thích Nhất Hạnh" },
+      { text: "Cuộc đời ngắn ngủi, đừng phí hoài từng phút giây quý giá vào những tranh cãi vô thưởng vô phạt.", author: "Marcus Aurelius" },
+      { text: "Bạn không thể tìm thấy bình yên bằng cách trốn tránh cuộc đời, mà bằng cách tĩnh lặng trong tâm hồn.", author: "Virginia Woolf" },
+      { text: "Năng lượng của bạn chảy về nơi sự chú ý của bạn hướng tới.", author: "Tony Robbins" },
+      { text: "Tắt bớt những tiếng ồn bên ngoài để lắng nghe tiếng nói thông tuệ bên trong.", author: "Carl Jung" },
+      { text: "Không gian này là dành riêng cho bạn — để nghỉ ngơi, nạp lại năng lượng và mỉm cười.", author: "ZenFeed Sanctuary" },
+      { text: "Mỗi ngày là một khởi đầu mới. Hãy thở sâu và bắt đầu lại với tâm thế an nhiên.", author: "Khuyết danh" }
     ],
     en: [
       { text: "Take a deep breath. This space is reserved for your peace of mind.", author: "ZenFeed Sanctuary" },
@@ -37,13 +52,29 @@
       { text: "Do not let other people's chaos invade your mental sanctuary.", author: "Epictetus" },
       { text: "Realize deeply that the present moment is all you have.", author: "Eckhart Tolle" },
       { text: "Drop your shoulders, soften your gaze, and breathe deeply.", author: "Mindful Living" },
-      { text: "Protect your focus as your most precious currency.", author: "Cal Newport" }
+      { text: "Protect your focus as your most precious currency.", author: "Cal Newport" },
+      { text: "The greatest wealth is a quiet mind that desires nothing from the crowd.", author: "Naval Ravikant" },
+      { text: "To be calm is the highest achievement of the self.", author: "Zen Proverb" },
+      { text: "When you do not react to provocations, you retain full mastery over yourself.", author: "Epictetus" },
+      { text: "Simplicity is the ultimate sophistication.", author: "Leonardo da Vinci" },
+      { text: "Adopt the pace of nature: her secret is patience.", author: "Ralph Waldo Emerson" },
+      { text: "Tranquility is nothing else than the good ordering of the mind.", author: "Marcus Aurelius" },
+      { text: "He who knows he has enough is rich.", author: "Lao Tzu" },
+      { text: "Breathing in, I calm body and mind. Breathing out, I smile.", author: "Thich Nhat Hanh" },
+      { text: "Life is short, and we have never too much time for gladdening the hearts of those around us.", author: "Henri-Frédéric Amiel" },
+      { text: "You cannot find peace by avoiding life, but by centering your thoughts within it.", author: "Virginia Woolf" },
+      { text: "Where attention goes, energy flows. Choose your focus with intention.", author: "Tony Robbins" },
+      { text: "Who looks outside, dreams; who looks inside, awakes.", author: "Carl Jung" },
+      { text: "This calm pocket of space belongs to you — pause, breathe, and recharge.", author: "ZenFeed Sanctuary" },
+      { text: "Almost everything will work again if you unplug it for a few minutes, including you.", author: "Anne Lamott" },
+      { text: "The quieter you become, the more you are able to hear.", author: "Rumi" },
+      { text: "Peace comes from within. Do not seek it without.", author: "Buddha" }
     ]
   };
 
   // LRU ring buffer to avoid repeating recent quotes
   const recentIndices = [];
-  const MAX_RECENT = 5;
+  const MAX_RECENT = 12;
 
   function getRandomQuote(lang, customQuotes) {
     // If user provided custom quotes (newline separated string or array)

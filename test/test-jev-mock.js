@@ -402,7 +402,17 @@ try {
   assert.strictEqual(t('vi', 'blurTagGeneric'), 'Đã ẩn: Khớp tiêu chí');
   assert.strictEqual(t('en', 'blurTagGeneric'), 'Hidden: Matches criteria');
   assert.strictEqual(t('vi', 'cornerLabel', { cat: 'Bất động sản' }), 'Có vẻ là Bất động sản');
-  ok('[i18n] Nhãn chung (fallback) đa ngôn ngữ hợp lệ; tránh gán nhãn sai danh mục.');
+  assert.strictEqual(t('vi', 'blurPresetZen'), '🌿 Zen Oasis (Nhịp thở & Tĩnh tâm)');
+  assert.strictEqual(t('vi', 'blurPresetXray'), '🔍 AI X-Ray (Soi nhanh lý do ẩn)');
+  assert.strictEqual(t('vi', 'blurPresetFlashcard'), '🎓 Knowledge Swap (Flashcards học nhanh)');
+  assert.strictEqual(t('vi', 'blurPresetXrayTag'), 'AI X-Ray');
+  assert.strictEqual(t('en', 'blurPresetZen'), '🌿 Zen Oasis (Breathing & Quotes)');
+  assert.strictEqual(t('en', 'blurPresetXray'), '🔍 AI X-Ray (TL;DR Summary)');
+  assert.strictEqual(t('en', 'blurPresetFlashcard'), '🎓 Knowledge Swap (Flashcards)');
+  assert.strictEqual(t('en', 'blurPresetXrayTag'), 'AI X-Ray');
+  assert.strictEqual(t('vi', 'btnNextQuote'), 'Đổi câu khác');
+  assert.strictEqual(t('en', 'btnNextQuote'), 'Next quote');
+  ok('[i18n] Nhãn chung (fallback) đa ngôn ngữ hợp lệ; tránh gán nhãn sai danh mục; các mode làm mờ chuẩn hóa.');
 
   // 26. TypeSafe AI: Multilingual & Clean Criteria Parser
   const filterCrit = 'quảng cáo, bất động sản, spam, có dấu hiệu lừa đảo, tuyển dụng';
@@ -461,13 +471,32 @@ try {
   assert(cardIelts.term && cardIelts.meaning, 'Flashcard IELTS phải có term và nghĩa');
   const cardTech = flashcardsData.getRandomFlashcard('tech', 'vi');
   assert(cardTech.term && cardTech.meaning, 'Flashcard Tech phải có term và nghĩa');
+  const cardQuotes = flashcardsData.getRandomFlashcard('quotes', 'vi');
+  assert(cardQuotes.term && cardQuotes.meaning, 'Flashcard Triết lý phải có term và nghĩa');
+  assert(zenData.quotes.vi.length >= 30, 'Kho câu nói tiếng Việt phải có tối thiểu 30 câu');
+  assert(zenData.quotes.en.length >= 30, 'Kho câu nói tiếng Anh phải có tối thiểu 30 câu');
+  assert(flashcardsData.data.ielts.length >= 15, 'Kho Flashcard IELTS phải có tối thiểu 15 thẻ');
+  assert(flashcardsData.data.tech.length >= 10, 'Kho Flashcard Tech phải có tối thiểu 10 thẻ');
+  assert(flashcardsData.data.quotes.length >= 10, 'Kho Flashcard Triết lý phải có tối thiểu 10 thẻ');
   ok('[Blur Mode & Zero-CLS] Zen Data & Flashcard Data hoạt động chuẩn xác, bảo đảm random không lỗi và an toàn.');
 
   // 30. Defaults: Blur Customization Keys
-  assert.strictEqual(DEFAULT_SETTINGS.blurPreset, 'zen', 'Mặc định blurPreset phải là zen');
+  assert.strictEqual(DEFAULT_SETTINGS.blurPreset, 'classic', 'Mặc định blurPreset phải là classic (làm mờ cơ bản)');
+  assert.strictEqual(DEFAULT_SETTINGS.blurClassicStrength, 18, 'Mặc định độ mờ cơ bản là 18px');
+  assert.strictEqual(DEFAULT_SETTINGS.blurClassicTint, '', 'Mặc định không phủ màu');
   assert.strictEqual(DEFAULT_SETTINGS.blurFlashcardTopic, 'ielts', 'Mặc định blurFlashcardTopic phải là ielts');
   assert.strictEqual(DEFAULT_SETTINGS.blurRevealFriction, 'instant', 'Mặc định blurRevealFriction phải là instant');
   assert(PUBLIC_SETTING_KEYS.includes('blurPreset') && PUBLIC_SETTING_KEYS.includes('blurRevealFriction'), 'Content script phải đọc được cấu hình blur');
+  assert(PUBLIC_SETTING_KEYS.includes('blurClassicStrength') && PUBLIC_SETTING_KEYS.includes('blurClassicTint'), 'Content script phải đọc được độ mờ và màu');
+  const { classicBlurLook } = globalThis.__jevDefaults;
+  const medium = classicBlurLook(18, '');
+  assert.strictEqual(medium.px, 18);
+  assert.strictEqual(medium.opacity, 0.72);
+  assert.strictEqual(medium.wash, 'transparent');
+  assert.strictEqual(classicBlurLook(99, 'not-a-color').tint, '');
+  assert.strictEqual(classicBlurLook(8, '#1877F2').tint, '#1877f2');
+  assert.strictEqual(classicBlurLook(7, '#abc').tint, '#aabbcc');
+  assert(classicBlurLook(32, '#000000').opacity < classicBlurLook(6, '').opacity, 'Mờ mạnh phải che nhiều hơn mờ nhẹ');
   ok('[Blur Customization] Settings mở rộng đầy đủ các key tùy biến cho chế độ Làm mờ.');
 
   // 31. Open Source & Repository Metadata Check

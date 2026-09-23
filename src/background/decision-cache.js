@@ -225,6 +225,51 @@ export async function clear() {
   await txDone(tx);
 }
 
+/**
+ * Most recently used decisions whose key ends with `suffix` (`_<criteriaHash>`),
+ * newest first, as [contentHash, decision] pairs. Lets a content script warm
+ * its local cache so repeated/re-rendered posts are decided with no round trip.
+ * @param {string} suffix
+ * @param {number} [limit]
+ * @returns {Promise<Array<[string, object]>>}
+ */
+export async function recent(suffix, limit = 500) {
+  const generationAtStart = cacheGeneration;
+  const out = [];
+  const seen = new Set();
+  const take = (key, rec) => {
+    if (out.length >= limit || seen.has(key) || !key.endsWith(suffix)) return;
+    seen.add(key);
+    out.push([key.slice(0, key.length - suffix.length), toDecision(rec)]);
+  };
+  for (const [k, rec] of [...mem].reverse()) take(k, rec);
+  if (out.length >= limit) return out;
+
+  if (!hasIDB) {
+    for (const [k, rec] of [...fallbackStore].reverse()) take(k, rec);
+    return out;
+  }
+  const db = await openDb();
+  if (!db) return out;
+  try {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).index('t').openCursor(null, 'prev');
+    let scanned = 0;
+    await new Promise((resolve) => {
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor || out.length >= limit || ++scanned > limit * 6) return resolve();
+        take(cursor.primaryKey, cursor.value);
+        cursor.continue();
+      };
+      req.onerror = () => resolve();
+    });
+  } catch (err) {
+    console.error('[Jev] Cache scan failed:', err);
+  }
+  return generationAtStart === cacheGeneration ? out : [];
+}
+
 /** Test hook: keys persisted by the fallback (non-IndexedDB) store. */
 export function persistedKeysForTest() {
   return [...fallbackStore.keys()];

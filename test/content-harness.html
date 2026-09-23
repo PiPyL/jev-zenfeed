@@ -53,7 +53,7 @@
         resolve(items.map(i => {
           if (backendMode === 'error') return { id: i.id, shouldHide: false, confidence: 0, error: true };
           const hit = crit.some(c => i.text.toLowerCase().includes(c));
-          return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3 };
+          return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3, violation: hit };
         }));
       }, backendDelayMs));
     }
@@ -128,6 +128,9 @@
       { id: 'D2', author: 'Quảng cáo Y', body: 'Nhận cá độ tỉ số, hoàn tiền 100%' },
       { id: 'E', author: 'Bạn Hoa', body: 'Đoạn một của bài viết dài|Đoạn hai của bài viết dài', useMarker: false }
     ]));
+    // ZenFeed only runs on the home News Feed route: pose as facebook.com/.
+    // "../src/..." below still resolves to /src/... from "/".
+    history.replaceState(null, '', '/');
   </script>
 
   <!-- Real content scripts, manifest order -->
@@ -267,9 +270,9 @@
       chrome.storage.local.set({ filterCriteria: 'công viên' });
       await waitFor(() => status('A') === 'safe' && status('B') === 'hidden');
       check('Đổi tiêu chí: bài không còn khớp được hiện lại', status('A') === 'safe' && !isCollapsed('A'));
-      check('Đổi tiêu chí: bài đã đọc lâu -> chỉ gắn nhãn góc, KHÔNG thu gọn/mờ ngay',
-        status('B') === 'hidden' && !isCollapsed('B') && !$('B').classList.contains('jev-blurred-post') &&
-        !!$('B').querySelector(':scope > .jev-corner-label') && !bannerOf('B'), status('B'));
+      check('Đổi tiêu chí: bài đã đọc lâu vẫn bị ẩn NGAY (không chỉ gắn nhãn góc)',
+        status('B') === 'hidden' && isCollapsed('B') && !!bannerOf('B') &&
+        !$('B').querySelector(':scope > .jev-corner-label'), status('B'));
       scrollAway();
       await waitFor(() => isCollapsed('B'));
       check('Cuộn bài đã gắn nhãn ra khỏi màn hình sẽ thu gọn thật',
@@ -294,17 +297,31 @@
 
       // --- API error → no stuck blur, retried silently later ---
       backendMode = 'error';
+      const callsBeforeH = calls.length;
       const feed = document.querySelector('[role="feed"]');
       const unit = document.createElement('div');
       unit.id = 'H';
       unit.innerHTML = postHTML({ author: 'Trang K', body: 'Tham gia cá độ ngay hôm nay' });
       feed.appendChild(unit);
+      // Posts are now registered/evaluated synchronously on insertion, so wait
+      // until the (failing) request has actually been sent AND answered.
+      await waitFor(() => calls.length > callsBeforeH);
       await waitFor(() => !$('H').classList.contains('jev-analyzing') && status('H') !== 'analyzing');
       check('Lỗi API: bài không bị kẹt blur', !$('H').classList.contains('jev-analyzing') && status('H') !== 'analyzing');
       backendMode = 'ok';
       document.body.appendChild(document.createElement('div'));
       await sleep(1600);
       check('Sau khi API hồi phục, bài được thử lại và ẩn', status('H') === 'hidden', status('H'));
+
+      // --- Local cache: identical content is decided on insertion, no API round trip ---
+      const callsBeforeDup = calls.length;
+      const dup = document.createElement('div');
+      dup.id = 'DUP';
+      dup.innerHTML = postHTML({ author: 'Trang K', body: 'Tham gia cá độ ngay hôm nay' });
+      feed.appendChild(dup);
+      await sleep(0); // one macrotask: mutation microtask has run, no timer/network waited
+      check('Cache cục bộ: bài trùng nội dung được ẩn ngay khi chèn, không gọi API',
+        status('DUP') === 'hidden' && calls.length === callsBeforeDup, `${status('DUP')} calls+${calls.length - callsBeforeDup}`);
 
       // --- Modern FB markup: no role=feed/article, ad-rendering markers only ---
       const modern = document.createElement('div');
@@ -347,6 +364,40 @@
         !allItems().some(i => i.text && i.text.includes('tin nhắn riêng tư')) &&
         calls.length === callsBeforeChat,
         `status=${$('CHAT1').dataset.jevStatus}, +${calls.length - callsBeforeChat} calls`);
+
+      // --- Current Messenger chat dock: outside role="main", none of the old
+      // chat markers (no MWChat pagelet / role="row"). Only the News Feed
+      // whitelist keeps the shared post in it from being classified.
+      const callsBeforeDock = calls.length;
+      const dock = document.createElement('div');
+      dock.innerHTML = `<div aria-label="Đoạn chat"><div id="DOCK1"><div data-virtualized="false">
+        <div><span data-ad-rendering-role="profile_name"><a role="link">AI Skills &amp; Jobs</a></span></div>
+        <div data-ad-rendering-role="story_message"><div dir="auto">Cá độ trong khung chat mới</div></div>
+        <div><div role="button" aria-label="Thích">Thích</div></div>
+      </div></div></div>`;
+      document.body.appendChild(dock);
+      await sleep(1800);
+      check('Khung chat mới (ngoài role="main") KHÔNG bị xử lý',
+        !$('DOCK1').hasAttribute('data-jev-status') && !dock.querySelector('[data-jev-status], .jev-ui') &&
+        calls.length === callsBeforeDock,
+        `+${calls.length - callsBeforeDock} calls`);
+
+      // --- Only the News Feed route: groups/profiles/messages are left alone ---
+      const callsBeforeRoute = calls.length;
+      history.pushState(null, '', '/groups/123456');
+      const grp = document.createElement('div');
+      grp.innerHTML = `<div data-virtualized="false" id="GRP1"><div class="card">
+        <div><span data-ad-rendering-role="profile_name"><a role="link">Nhóm Z</a></span></div>
+        <div data-ad-rendering-role="story_message"><div dir="auto">Cá độ trong nhóm</div></div>
+        <div><div role="button" aria-label="Thích">Thích</div></div>
+      </div></div>`;
+      document.getElementById('main').appendChild(grp);
+      await sleep(1800);
+      check('Ngoài News Feed (/groups/...) KHÔNG bị xử lý',
+        !$('GRP1').hasAttribute('data-jev-status') && calls.length === callsBeforeRoute,
+        `status=${$('GRP1').dataset.jevStatus}, +${calls.length - callsBeforeRoute} calls`);
+      grp.remove();
+      history.replaceState(null, '', '/');
 
       // --- Hidden post must stay stable (no blur -> hide -> blur -> hide loop) ---
       const loopWrap = document.createElement('div');
@@ -500,22 +551,9 @@
       await sleep(400); // scanned & registered (click listener attached) before we click it below
       $('RZ_INTERACTED').querySelector('[role="toolbar"]').click(); // simulate Like, before the decision lands
       await waitFor(() => status('RZ_INTERACTED') === 'hidden');
-      check('Đã tương tác: quyết định ẩn chỉ gắn nhãn góc dù bài còn mới',
-        status('RZ_INTERACTED') === 'hidden' && !!$('RZ_INTERACTED').querySelector(':scope > .jev-corner-label') &&
-        !$('RZ_INTERACTED').classList.contains('jev-blurred-post') && !bannerOf('RZ_INTERACTED'), status('RZ_INTERACTED'));
-      scrollAway();
-      await sleep(300); // interacted -> no auto-collapse should happen; give it a real chance to (wrongly) fire
-      check('Đã tương tác: cuộn qua vẫn KHÔNG tự thu gọn (tôn trọng người dùng)',
-        status('RZ_INTERACTED') === 'hidden' && !isCollapsed('RZ_INTERACTED') &&
-        !!$('RZ_INTERACTED').querySelector(':scope > .jev-corner-label'));
-      showInReadingZone($('RZ_INTERACTED')); // bring back to reach the "Collapse" button
-      await sleep(200);
-      const collapseBtn = $('RZ_INTERACTED').querySelector(':scope > .jev-corner-label .jev-btn-collapse');
-      check('Nút "Thu gọn" có mặt trên nhãn góc', !!collapseBtn);
-      if (collapseBtn) collapseBtn.click();
-      await waitFor(() => isCollapsed('RZ_INTERACTED'));
-      check('Bấm "Thu gọn" thu gọn ngay dù đang xem',
-        status('RZ_INTERACTED') === 'hidden' && isCollapsed('RZ_INTERACTED') && !!bannerOf('RZ_INTERACTED'));
+      check('Đã tương tác: vi phạm vẫn được ẩn ngay, không chỉ gắn nhãn góc',
+        status('RZ_INTERACTED') === 'hidden' && isCollapsed('RZ_INTERACTED') && !!bannerOf('RZ_INTERACTED') &&
+        !$('RZ_INTERACTED').querySelector(':scope > .jev-corner-label'), status('RZ_INTERACTED'));
       scrollAway();
       await sleep(100);
 
@@ -534,17 +572,16 @@
       // Tương tác của người dùng trong lúc bài đang chờ AI vẫn được tôn trọng
       $('RZ_PENDING').querySelector('[role="toolbar"]').click();
       await waitFor(() => status('RZ_PENDING') === 'hidden');
-      check('Tương tác trong lúc quét: quyết định ẩn chỉ gắn nhãn góc (không giật bài đang xem)',
-        status('RZ_PENDING') === 'hidden' && !!$('RZ_PENDING').querySelector(':scope > .jev-corner-label') && !bannerOf('RZ_PENDING'));
-      check('Nội dung không bị gián đoạn hay kẹt mờ', !$('RZ_PENDING').classList.contains('jev-blurred-post'));
+      check('Tương tác trong lúc quét: vi phạm được ẩn ngay khi có kết quả',
+        status('RZ_PENDING') === 'hidden' && !!bannerOf('RZ_PENDING') && !$('RZ_PENDING').querySelector(':scope > .jev-corner-label'));
       backendDelayMs = 60;
       scrollAway();
       await sleep(100);
 
       // --- Local "jank avoided" metric reported to the background worker ---
       const uxMetrics = messages.filter(m => m.action === 'UX_METRIC');
-      check('Số lần tránh giật khung hình được báo cho worker (UX_METRIC)',
-        uxMetrics.length > 0 && uxMetrics.some(m => m.deferred > 0), JSON.stringify(uxMetrics));
+      check('Không còn hoãn ẩn: không có UX_METRIC "deferred" nào được báo',
+        !uxMetrics.some(m => m.deferred > 0), JSON.stringify(uxMetrics));
 
       // --- Regression: extension reloaded while a batch is still pending ---
       // The orphaned content script must shut down silently: no API call, no

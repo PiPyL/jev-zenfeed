@@ -20,6 +20,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const hideModeSelect = document.getElementById('hideMode');
   const blurCustomizationGroup = document.getElementById('blurCustomizationGroup');
   const blurPresetSelect = document.getElementById('blurPreset');
+  const blurClassicLook = document.getElementById('blurClassicLook');
+  const blurClassicStrength = document.getElementById('blurClassicStrength');
+  const blurStrengthHint = document.getElementById('blurStrengthHint');
+  const blurClassicPreview = document.getElementById('blurClassicPreview');
+  const blurClassicSwatches = document.getElementById('blurClassicSwatches');
+  const blurClassicColor = document.getElementById('blurClassicColor');
+  const blurClassicCustom = document.getElementById('blurClassicCustom');
+  const blurClassicReset = document.getElementById('blurClassicReset');
   const blurFlashcardTopicRow = document.getElementById('blurFlashcardTopicRow');
   const blurFlashcardTopicSelect = document.getElementById('blurFlashcardTopic');
   const blurRevealFrictionSelect = document.getElementById('blurRevealFriction');
@@ -109,6 +117,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnClearLogs.title = t('btnClearLogsTitle');
     btnClearLogs.setAttribute('aria-label', t('btnClearLogsTitle'));
     updateToggleKeyIcon();
+    if (blurClassicColor) blurClassicColor.setAttribute('aria-label', t('blurTintCustom'));
+    refreshClassicLookLabels();
     btnToggleAdvanced.textContent = advancedSettings.classList.contains('hidden') ? t('btnToggleAdvancedShow') : t('btnToggleAdvancedHide');
     applyPresetChips();
     updateChips();
@@ -177,6 +187,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     try { v == null ? localStorage.removeItem(DRAFT_KEY) : localStorage.setItem(DRAFT_KEY, v); } catch (_) {}
   };
 
+  let classicTint = '';
+  const CLASSIC_PRESET_TINTS = new Set(['', '#1c1e21', '#f5f6f7', '#1877f2', '#7fa894']);
   let savedCriteria = DEFAULT_SETTINGS.filterCriteria;
   let savedWhitelist = DEFAULT_SETTINGS.whitelistCriteria || '';
   let savedApiKey = '';
@@ -193,7 +205,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     thresholdDisplay.textContent = `${confidenceSlider.value}%`;
     hideModeSelect.value = data.hideMode;
     if (filterModeSelect) filterModeSelect.value = data.filterMode;
-    if (blurPresetSelect) blurPresetSelect.value = data.blurPreset || DEFAULT_SETTINGS.blurPreset || 'zen';
+    if (blurPresetSelect) blurPresetSelect.value = data.blurPreset || DEFAULT_SETTINGS.blurPreset || 'classic';
+    renderClassicLook(data.blurClassicStrength, data.blurClassicTint);
     if (blurFlashcardTopicSelect) blurFlashcardTopicSelect.value = data.blurFlashcardTopic || DEFAULT_SETTINGS.blurFlashcardTopic || 'ielts';
     if (blurRevealFrictionSelect) blurRevealFrictionSelect.value = data.blurRevealFriction || DEFAULT_SETTINGS.blurRevealFriction || 'instant';
     if (blurCustomQuotesInput) blurCustomQuotesInput.value = data.blurCustomQuotes || '';
@@ -291,17 +304,66 @@ document.addEventListener('DOMContentLoaded', async () => {
     save({ confidenceThreshold: parseInt(confidenceSlider.value, 10) });
   });
 
+  function strengthHintKey(px) {
+    if (px <= 10) return 'blurStrengthLight';
+    if (px <= 22) return 'blurStrengthMedium';
+    return 'blurStrengthStrong';
+  }
+
+  function renderClassicLook(strength, tint) {
+    if (typeof window.JevFB.classicBlurLook !== 'function') return;
+    const look = window.JevFB.classicBlurLook(strength, tint);
+    classicTint = look.tint;
+    if (blurClassicStrength) {
+      blurClassicStrength.value = String(look.px);
+      blurClassicStrength.setAttribute('aria-valuetext', t(strengthHintKey(look.px)));
+    }
+    if (blurClassicColor && look.tint) blurClassicColor.value = look.tint;
+    if (blurClassicSwatches) {
+      blurClassicSwatches.querySelectorAll('.swatch[data-tint]').forEach((btn) => {
+        const on = btn.dataset.tint === look.tint;
+        btn.classList.toggle('is-selected', on);
+        btn.setAttribute('aria-pressed', String(on));
+      });
+    }
+    if (blurClassicCustom) {
+      blurClassicCustom.classList.toggle('is-selected', look.tint !== '' && !CLASSIC_PRESET_TINTS.has(look.tint));
+    }
+    if (blurClassicPreview) {
+      blurClassicPreview.style.setProperty('--preview-blur', `${look.px}px`);
+      blurClassicPreview.style.setProperty('--preview-opacity', String(look.opacity));
+      blurClassicPreview.style.setProperty('--preview-wash', look.wash);
+    }
+    refreshClassicLookLabels();
+  }
+
+  function refreshClassicLookLabels() {
+    if (!blurClassicStrength || !blurStrengthHint) return;
+    const px = parseInt(blurClassicStrength.value, 10);
+    blurStrengthHint.textContent = t(strengthHintKey(px));
+    blurClassicStrength.setAttribute('aria-valuetext', blurStrengthHint.textContent);
+  }
+
+  function saveClassicLook() {
+    if (!blurClassicStrength) return;
+    const look = window.JevFB.classicBlurLook(blurClassicStrength.value, classicTint);
+    renderClassicLook(look.px, look.tint);
+    save({ blurClassicStrength: look.px, blurClassicTint: look.tint });
+  }
+
   function updateBlurCustomizationVisibility() {
     const isBlur = hideModeSelect.value === 'blur';
     if (blurCustomizationGroup) {
       blurCustomizationGroup.classList.toggle('hidden', !isBlur);
     }
+    const preset = blurPresetSelect ? blurPresetSelect.value : '';
+    if (blurClassicLook) blurClassicLook.classList.toggle('hidden', !isBlur || preset !== 'classic');
     if (isBlur && blurPresetSelect) {
       if (blurFlashcardTopicRow) {
-        blurFlashcardTopicRow.classList.toggle('hidden', blurPresetSelect.value !== 'flashcard');
+        blurFlashcardTopicRow.classList.toggle('hidden', preset !== 'flashcard');
       }
       if (blurCustomQuotesRow) {
-        blurCustomQuotesRow.classList.toggle('hidden', blurPresetSelect.value !== 'zen');
+        blurCustomQuotesRow.classList.toggle('hidden', preset !== 'zen');
       }
     }
   }
@@ -315,6 +377,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     blurPresetSelect.addEventListener('change', () => {
       save({ blurPreset: blurPresetSelect.value });
       updateBlurCustomizationVisibility();
+    });
+  }
+
+  if (blurClassicStrength) {
+    blurClassicStrength.addEventListener('input', () => {
+      renderClassicLook(blurClassicStrength.value, classicTint);
+    });
+    blurClassicStrength.addEventListener('change', saveClassicLook);
+  }
+
+  if (blurClassicSwatches) {
+    blurClassicSwatches.addEventListener('click', (event) => {
+      const btn = event.target.closest('.swatch[data-tint]');
+      if (!btn || !blurClassicSwatches.contains(btn)) return;
+      classicTint = btn.dataset.tint || '';
+      saveClassicLook();
+    });
+  }
+
+  if (blurClassicColor) {
+    let tintTimer = null;
+    const pickCustomTint = () => {
+      classicTint = blurClassicColor.value;
+      renderClassicLook(blurClassicStrength ? blurClassicStrength.value : 18, classicTint);
+      clearTimeout(tintTimer);
+      tintTimer = setTimeout(saveClassicLook, 200);
+    };
+    blurClassicColor.addEventListener('input', pickCustomTint);
+    blurClassicColor.addEventListener('change', () => {
+      clearTimeout(tintTimer);
+      classicTint = blurClassicColor.value;
+      saveClassicLook();
+    });
+  }
+
+  if (blurClassicReset) {
+    blurClassicReset.addEventListener('click', () => {
+      classicTint = DEFAULT_SETTINGS.blurClassicTint;
+      if (blurClassicStrength) blurClassicStrength.value = String(DEFAULT_SETTINGS.blurClassicStrength);
+      saveClassicLook();
     });
   }
 
@@ -458,12 +560,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Endpoints outside the manifest's host_permissions need an optional host
   // permission, otherwise requests depend on the server's CORS setup.
-  const BUILTIN_HOSTS = new Set(['api.typesafe.ai', 'localhost', '127.0.0.1']);
+  const BUILTIN_HOSTS = new Set(['api.typesafe.ai']);
+  const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
 
   function parseApiUrl(raw) {
     try {
       const u = new URL(raw);
-      return (u.protocol === 'https:' || u.protocol === 'http:') ? u : null;
+      // Plain http is only allowed for a local server: the API key and post
+      // text must not travel unencrypted over the network.
+      if (u.protocol === 'https:') return u;
+      return (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname)) ? u : null;
     } catch (_) {
       return null;
     }
@@ -616,12 +722,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function matchesFilter(item) {
     switch (activeLogFilter) {
-      case 'hide': return item.tag === 'ẨN BÀI' || item.level === 'success';
+      case 'hide': return item.tag === 'HIDDEN' || item.level === 'success';
       case 'ai': return item.tag === 'JEV-AI' || item.level === 'ai';
       case 'warn': return item.level === 'warn' || item.level === 'error' || item.tag === 'WARN' || item.tag === 'ERROR';
       default: return true;
     }
   }
+
+  // Entries with an i18n key follow the current UI language; older/plain ones keep their text.
+  const logText = (log) => (log.key ? translate(currentLang, log.key, log.params || {}) : log.message || '');
 
   function logEntryHtml(log) {
     const levelClass = `level-${LOG_LEVELS.has(log.level) ? log.level : 'info'}`;
@@ -631,7 +740,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <span class="log-time">${escapeHtml(log.time || '')}</span>
           <span class="log-tag-badge">${escapeHtml(log.tag || 'INFO')}</span>
         </div>
-        <div class="log-text">${escapeHtml(log.message || '')}</div>
+        <div class="log-text">${escapeHtml(logText(log))}</div>
       </div>
     `;
   }
@@ -687,7 +796,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnCopyLogs.addEventListener('click', async () => {
     if (cachedLogs.length === 0) return;
-    const text = cachedLogs.map(l => `[${l.time}] [${l.tag}] ${l.message}`).join('\n');
+    const text = cachedLogs.map(l => `[${l.time}] [${l.tag}] ${logText(l)}`).join('\n');
     try {
       await navigator.clipboard.writeText(text);
       btnCopyLogs.classList.add('copied');
