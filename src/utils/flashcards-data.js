@@ -98,12 +98,12 @@
         example: "Chỉnh sửa nhiều dòng giống nhau trong tích tắc."
       },
       {
-        term: "Zero CLS (Cumulative Layout Shift)",
+        term: "Cumulative Layout Shift (CLS)",
         phonetic: "Core Web Vitals",
         type: "Performance Concept",
-        meaningVi: "Giữ khung hình ổn định, không để trang bị giật nảy khi tải nội dung",
-        meaningEn: "Ensures visual stability so elements don't shift unexpectedly",
-        example: "ZenFeed Blur Mode giữ nguyên chiều cao bài viết để đạt Zero CLS."
+        meaningVi: "Chỉ số đo mức độ thay đổi bố cục bất ngờ khi trang đang hiển thị",
+        meaningEn: "A metric for unexpected layout movement during page use",
+        example: "Giữ nguyên kích thước bài khi làm mờ giúp lớp phủ không làm đổi bố cục."
       }
     ],
     quotes: [

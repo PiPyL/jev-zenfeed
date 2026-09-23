@@ -144,8 +144,8 @@ body {
 }
 
 .logo {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
 }
 
@@ -301,6 +301,20 @@ textarea:focus,
 select:focus {
   outline: none;
   border-color: var(--primary);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible,
+.tab-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.switch input:focus-visible + .slider {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 
 textarea {
@@ -772,6 +786,17 @@ textarea {
   border-color: var(--primary);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Logs Container & Entries */
 .logs-container {
   height: 160px;
@@ -935,4 +960,3 @@ textarea {
   border-color: #7FA894;
   box-shadow: 0 0 0 2px rgba(127, 168, 148, 0.2);
 }
-

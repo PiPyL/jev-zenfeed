@@ -43,8 +43,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   updateHealth();
 });
 
-const hasKey = () => !!(settings.apiKey && settings.apiKey.trim());
-const hasCriteria = () => criteriaTopics(settings.filterCriteria).length > 0;
+const hasKey = (config = settings) => !!(config.apiKey && config.apiKey.trim());
+const hasCriteria = (config = settings) => criteriaTopics(config.filterCriteria).length > 0;
 
 // ==================== TOOLBAR BADGE ====================
 // Per tab: number of posts hidden. Globally: OFF / "!" when the filter cannot
@@ -185,9 +185,9 @@ export function __flushStatsForTest() {
 }
 
 /**
- * UX_METRIC: how many times the content script chose NOT to collapse a
+ * UX_METRIC: how many times the content script delayed collapsing a
  * violating post while it was in the user's reading zone (see content.js
- * `applyHideDecision`) — i.e. how many feed-jank moments were avoided. Folded
+ * `applyHideDecision`). This is not a frame-rate or jank measurement. Folded
  * into the same debounced `stats` write as everything else, never written
  * directly from the content script (see decision-cache.js's own note on why
  * storage.local writes from a tab broadcast to every other Facebook tab).
@@ -273,6 +273,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case 'CLEAR_CACHE':
+      // Existing callers may finish, but new calls must not join them and
+      // their results must not repopulate the cache after this clear.
+      inflight.clear();
       decisionCache.clear().then(() => {
         addLog({ level: 'info', tag: 'CACHE', message: 'Đã xóa toàn bộ bộ nhớ đệm (Cache)!' });
         sendResponse({ success: true });
@@ -295,7 +298,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ==================== USER FEEDBACK ====================
 
-const criteriaKeyHash = () => simpleHash(criteriaFingerprint(settings.filterCriteria, settings.whitelistCriteria));
+const criteriaKeyHash = (config = settings) => simpleHash(criteriaFingerprint(config.filterCriteria, config.whitelistCriteria));
 
 /**
  * "Ẩn nhầm": the user says this content must not be hidden under the current
@@ -318,6 +321,27 @@ async function markSafe(message, sender) {
 // Requests currently on the wire, keyed by cache key. A post that appears in
 // several batches/tabs at once (same ad twice, two tabs) is only paid for once.
 const inflight = new Map();
+const MAX_CONCURRENT_API_REQUESTS = 2;
+let activeApiRequests = 0;
+const apiRequestQueue = [];
+
+function drainApiRequestQueue() {
+  while (activeApiRequests < MAX_CONCURRENT_API_REQUESTS && apiRequestQueue.length > 0) {
+    const job = apiRequestQueue.shift();
+    activeApiRequests++;
+    Promise.resolve().then(job.run).then(job.resolve, job.reject).finally(() => {
+      activeApiRequests--;
+      drainApiRequestQueue();
+    });
+  }
+}
+
+function queueApiRequest(run) {
+  return new Promise((resolve, reject) => {
+    apiRequestQueue.push({ run, resolve, reject });
+    drainApiRequestQueue();
+  });
+}
 
 // After an API failure, fail fast for a short window instead of hammering a
 // down/blocked endpoint on every scroll (posts are retried after it expires).
@@ -338,13 +362,13 @@ const author = (item) => item.author || 'Người dùng';
 async function handleBatchEvaluation(items) {
   if (!Array.isArray(items) || items.length === 0) return [];
   await settingsReady;
-  const config = settings;
+  const config = { ...settings };
 
   const skippedAll = () => items.map(it => ({ id: it.id, shouldHide: false, confidence: 0, skipped: true }));
 
   if (!config.extensionEnabled) return skippedAll();
 
-  if (!hasKey()) {
+  if (!hasKey(config)) {
     warnThrottled('no-key', {
       level: 'warn',
       tag: 'WARN',
@@ -353,7 +377,7 @@ async function handleBatchEvaluation(items) {
     return skippedAll();
   }
 
-  if (!hasCriteria()) {
+  if (!hasCriteria(config)) {
     warnThrottled('no-criteria', {
       level: 'warn',
       tag: 'WARN',
@@ -363,7 +387,10 @@ async function handleBatchEvaluation(items) {
   }
 
   const threshold = config.confidenceThreshold;
-  const criteriaHash = criteriaKeyHash();
+  const criteriaHash = criteriaKeyHash(config);
+  // Fence the whole operation from the start. If the cache is cleared while
+  // getMany is waiting on IndexedDB, this batch must not repopulate it.
+  const generationAtStart = decisionCache.getGeneration();
   const keyOf = (item) => `${item.hash}_${criteriaHash}`;
 
   /** @type {Map<string, Promise<object>>} cacheKey -> promise of RAW decision */
@@ -395,14 +422,23 @@ async function handleBatchEvaluation(items) {
 
   if (toFetch.size > 0) {
     const sending = [...toFetch.values()];
-    const startedAt = Date.now();
-    const apiPromise = Date.now() < apiCooldownUntil
-      ? Promise.resolve(sending.map(it => ({ id: it.id, error: true })))
-      : evaluateWithJev(config.apiKey, config.apiUrl, sending, config.filterCriteria, threshold, config.whitelistCriteria)
+    const apiPromise = queueApiRequest(() => {
+      if (generationAtStart !== decisionCache.getGeneration()) {
+        return sending.map(it => ({ id: it.id, error: true }));
+      }
+      if (Date.now() < apiCooldownUntil) {
+        return sending.map(it => ({ id: it.id, error: true }));
+      }
+      const startedAt = Date.now();
+      return evaluateWithJev(config.apiKey, config.apiUrl, sending, config.filterCriteria, threshold, config.whitelistCriteria)
         .then((results) => {
           logApiBatch(results, sending, threshold, Date.now() - startedAt);
+          if (results.some(r => r.error) && Date.now() >= apiCooldownUntil) {
+            apiCooldownUntil = Date.now() + API_COOLDOWN_MS;
+          }
           return results;
         });
+    });
 
     const byId = apiPromise.then((results) => new Map(results.map(r => [r.id, r])));
 
@@ -412,12 +448,14 @@ async function handleBatchEvaluation(items) {
         if (res.error) return { error: true };
         // F1: only real decisions are cached; F3: cache RAW values
         const raw = { violation: res.violation === true, confidence: res.confidence };
+        if (Number.isFinite(res.whitelistConfidence)) raw.whitelistConfidence = res.whitelistConfidence;
         if (res.reason) raw.reason = res.reason;
-        decisionCache.set(key, raw);
+        decisionCache.set(key, raw, generationAtStart);
         return raw;
       });
       inflight.set(key, p);
-      p.finally(() => { if (inflight.get(key) === p) inflight.delete(key); });
+      const clearInflight = () => { if (inflight.get(key) === p) inflight.delete(key); };
+      p.then(clearInflight, clearInflight);
       pendingByKey.set(key, p);
     }
   }
@@ -428,7 +466,7 @@ async function handleBatchEvaluation(items) {
     if (raw.error) return { id: item.id, shouldHide: false, confidence: 0, error: true };
     const result = {
       id: item.id,
-      shouldHide: raw.violation === true && raw.confidence >= threshold,
+      shouldHide: raw.violation === true && raw.confidence >= threshold && !(raw.whitelistConfidence >= threshold),
       confidence: raw.confidence,
       fromCache: raw.fromCache === true
     };
@@ -436,6 +474,10 @@ async function handleBatchEvaluation(items) {
     if (raw.user) result.user = true;
     return result;
   }));
+
+  if (generationAtStart !== decisionCache.getGeneration()) {
+    return items.map(item => ({ id: item.id, shouldHide: false, confidence: 0, error: true }));
+  }
 
   // Logging never blocks the response
   const errorCount = results.filter(r => r.error).length;
@@ -470,7 +512,7 @@ function logApiBatch(results, sent, threshold, ms) {
   const ok = results.filter(r => !r.error);
   if (ok.length > 0 && apiFailing) { apiFailing = false; updateHealth(); }
 
-  const hidden = ok.filter(r => r.violation && r.confidence >= threshold);
+  const hidden = ok.filter(r => r.violation && r.confidence >= threshold && !(r.whitelistConfidence >= threshold));
   hidden.forEach((r) => {
     addLog({
       level: 'success',

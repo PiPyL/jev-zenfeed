@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const criteriaStatus = document.getElementById('criteriaStatus');
   const btnApplyCriteria = document.getElementById('btnApplyCriteria');
   const confidenceSlider = document.getElementById('confidenceThreshold');
+  const thresholdDisplay = document.getElementById('thresholdDisplay');
   const hideModeSelect = document.getElementById('hideMode');
   const blurCustomizationGroup = document.getElementById('blurCustomizationGroup');
   const blurPresetSelect = document.getElementById('blurPreset');
@@ -138,12 +139,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       const active = btn.dataset.tab === tabName;
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-selected', String(active));
+      btn.tabIndex = active ? 0 : -1;
     });
-    Object.entries(tabPanels).forEach(([name, panel]) => panel.classList.toggle('hidden', name !== tabName));
+    Object.entries(tabPanels).forEach(([name, panel]) => {
+      const hidden = name !== tabName;
+      panel.classList.toggle('hidden', hidden);
+      panel.hidden = hidden;
+    });
     try { localStorage.setItem(TAB_KEY, tabName); } catch (_) {}
   }
 
   tabButtons.forEach((btn) => btn.addEventListener('click', () => setActiveTab(btn.dataset.tab)));
+  document.querySelector('.tabs').addEventListener('keydown', (e) => {
+    const current = [...tabButtons].indexOf(document.activeElement);
+    if (current < 0) return;
+    let next = current;
+    if (e.key === 'ArrowRight') next = (current + 1) % tabButtons.length;
+    else if (e.key === 'ArrowLeft') next = (current - 1 + tabButtons.length) % tabButtons.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabButtons.length - 1;
+    else return;
+    e.preventDefault();
+    const button = tabButtons[next];
+    setActiveTab(button.dataset.tab);
+    button.focus();
+  });
 
   let initialTab = 'activity';
   try { initialTab = localStorage.getItem(TAB_KEY) || 'activity'; } catch (_) {}
@@ -170,6 +190,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     apiKeyInput.value = data.apiKey || '';
     apiUrlInput.value = data.apiUrl || DEFAULT_SETTINGS.apiUrl;
     confidenceSlider.value = data.confidenceThreshold;
+    thresholdDisplay.textContent = `${confidenceSlider.value}%`;
     hideModeSelect.value = data.hideMode;
     if (filterModeSelect) filterModeSelect.value = data.filterMode;
     if (blurPresetSelect) blurPresetSelect.value = data.blurPreset || DEFAULT_SETTINGS.blurPreset || 'zen';

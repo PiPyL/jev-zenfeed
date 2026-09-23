@@ -25,12 +25,12 @@
 
     <!-- Tabs -->
     <div class="tabs" role="tablist">
-      <button type="button" class="tab-btn active" data-tab="activity" role="tab" aria-selected="true" data-i18n="tabActivity">Activity</button>
-      <button type="button" class="tab-btn" data-tab="settings" role="tab" aria-selected="false" data-i18n="tabSettings">Settings</button>
+      <button type="button" id="tabActivity" class="tab-btn active" data-tab="activity" role="tab" aria-controls="panelActivity" aria-selected="true" tabindex="0" data-i18n="tabActivity">Activity</button>
+      <button type="button" id="tabSettings" class="tab-btn" data-tab="settings" role="tab" aria-controls="panelSettings" aria-selected="false" tabindex="-1" data-i18n="tabSettings">Settings</button>
     </div>
 
     <!-- ==================== ACTIVITY TAB ==================== -->
-    <div id="panelActivity" class="tab-panel">
+    <div id="panelActivity" class="tab-panel" role="tabpanel" aria-labelledby="tabActivity" tabindex="0">
 
       <!-- Usage Statistics -->
       <section class="card stats-card">
@@ -50,9 +50,9 @@
           <div class="stat-value" id="statCacheHit">0%</div>
           <div class="stat-label" data-i18n="statCacheHit">Cache Hit</div>
         </div>
-        <div class="stat-item" data-i18n-title="statDeferredTitle" title="Times a violating post was NOT collapsed while you were looking at it — it waited until you scrolled past">
+        <div class="stat-item" data-i18n-title="statDeferredTitle" title="Number of violating posts whose hide was delayed while they remained in the reading area">
           <div class="stat-value" id="statDeferred">0</div>
-          <div class="stat-label" data-i18n="statDeferred">Jank avoided</div>
+          <div class="stat-label" data-i18n="statDeferred">Hide delayed</div>
         </div>
       </section>
 
@@ -101,7 +101,7 @@
     </div>
 
     <!-- ==================== SETTINGS TAB ==================== -->
-    <div id="panelSettings" class="tab-panel hidden">
+    <div id="panelSettings" class="tab-panel hidden" role="tabpanel" aria-labelledby="tabSettings" tabindex="0" hidden>
 
       <!-- Language -->
       <section class="card">
@@ -226,24 +226,24 @@
 
         <div class="setting-row">
           <div>
-            <label class="setting-label" data-i18n="hideModeLabel">When hidden, show:</label>
-            <div class="setting-desc" data-i18n="hideModeDesc">How violating posts are handled</div>
+            <label for="hideMode" class="setting-label" data-i18n="hideModeLabel">When hidden, show:</label>
+            <div id="hideModeDesc" class="setting-desc" data-i18n="hideModeDesc">How violating posts are handled</div>
           </div>
-          <select id="hideMode" class="select-box">
+          <select id="hideMode" class="select-box" aria-describedby="hideModeDesc">
             <option value="banner" selected data-i18n="hideModeBanner">Collapsed banner (Recommended)</option>
             <option value="blur" data-i18n="hideModeBlur">Blur the content</option>
             <option value="remove" data-i18n="hideModeRemove">Remove completely</option>
           </select>
         </div>
 
-        <!-- Blur Mode Customization Panel (Zero-CLS Digital Sanctuary) -->
+        <!-- Blur Mode Customization Panel -->
         <div id="blurCustomizationGroup" class="blur-customization-card hidden">
           <div class="setting-sub-row">
             <div>
-              <label class="setting-label-small" data-i18n="blurPresetLabel">Blur Canvas Style:</label>
-              <div class="setting-desc" data-i18n="blurPresetDesc">What to display in place of the blurred post</div>
+              <label for="blurPreset" class="setting-label-small" data-i18n="blurPresetLabel">Blur Canvas Style:</label>
+              <div id="blurPresetDesc" class="setting-desc" data-i18n="blurPresetDesc">What to display in place of the blurred post</div>
             </div>
-            <select id="blurPreset" class="select-box">
+            <select id="blurPreset" class="select-box" aria-describedby="blurPresetDesc">
               <option value="zen" selected data-i18n="blurPresetZen">🌿 Zen Oasis (Breathing & Quotes)</option>
               <option value="xray" data-i18n="blurPresetXray">🔍 AI X-Ray (TL;DR Summary)</option>
               <option value="flashcard" data-i18n="blurPresetFlashcard">🎓 Knowledge Swap (Flashcards)</option>
@@ -252,7 +252,7 @@
           </div>
 
           <div id="blurFlashcardTopicRow" class="setting-sub-row hidden">
-            <label class="setting-label-small" data-i18n="blurFlashcardTopicLabel">Knowledge Topic:</label>
+            <label for="blurFlashcardTopic" class="setting-label-small" data-i18n="blurFlashcardTopicLabel">Knowledge Topic:</label>
             <select id="blurFlashcardTopic" class="select-box">
               <option value="ielts" selected data-i18n="blurTopicIelts">Academic English (IELTS)</option>
               <option value="tech" data-i18n="blurTopicTech">Tech & Shortcuts</option>
@@ -262,7 +262,7 @@
 
           <div class="setting-sub-row">
             <div>
-              <label class="setting-label-small" data-i18n="blurFrictionLabel">Reveal Action:</label>
+              <label for="blurRevealFriction" class="setting-label-small" data-i18n="blurFrictionLabel">Reveal Action:</label>
             </div>
             <select id="blurRevealFriction" class="select-box">
               <option value="instant" selected data-i18n="blurFrictionInstant">1-Click (Instant)</option>
@@ -271,7 +271,7 @@
           </div>
 
           <div id="blurCustomQuotesRow" class="setting-sub-row">
-            <label class="setting-label-small" data-i18n="blurCustomQuotesLabel">Custom Quotes / Notes:</label>
+            <label for="blurCustomQuotes" class="setting-label-small" data-i18n="blurCustomQuotesLabel">Custom Quotes / Notes:</label>
             <textarea id="blurCustomQuotes" class="textarea-small" rows="2" data-i18n-placeholder="blurCustomQuotesPlaceholder" placeholder="Enter custom affirmations or quotes (one per line)..."></textarea>
           </div>
         </div>

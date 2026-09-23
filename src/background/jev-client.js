@@ -294,8 +294,9 @@ function makeDecision(violation, prob, thresholdPct, reason) {
  * Items without a usable answer come back with `error: true` so they are
  * retried later instead of being cached as "safe" (F1).
  */
-export function parseJevDecisions(data, originalItems, confidenceRatio) {
+export function parseJevDecisions(data, originalItems, confidenceRatio, _criteria = '', whitelistCriteria = '') {
   const thresholdPct = Math.round(confidenceRatio * 100);
+  const requiresWhitelistAnswer = Boolean(whitelistCriteria && whitelistCriteria.trim());
   const resultMap = new Map();
 
   // Pattern 1: Official TypeSafe AI System One response format
@@ -306,7 +307,7 @@ export function parseJevDecisions(data, originalItems, confidenceRatio) {
 
       // 1. Direct answer check: answers[id]
       const direct = data.answers[id];
-      if (direct) {
+      if (direct && !requiresWhitelistAnswer) {
         if (direct.type === 'noul') {
           const prob = toProbability(direct.noul);
           if (prob !== null) {
@@ -327,12 +328,17 @@ export function parseJevDecisions(data, originalItems, confidenceRatio) {
 
       if (violateAns && violateAns.type === 'noul') {
         const vProb = toProbability(violateAns.noul);
-        if (vProb !== null) {
-          const wlProb = wlAns && wlAns.type === 'noul' ? (toProbability(wlAns.noul) ?? 0) : 0;
-          const isViolated = (vProb * 100 >= thresholdPct);
-          const isWhitelisted = (wlProb * 100 >= thresholdPct);
-          const shouldHide = isViolated && !isWhitelisted;
-          resultMap.set(id, makeDecision(shouldHide, vProb, thresholdPct));
+        const wlProb = wlAns && wlAns.type === 'noul' ? toProbability(wlAns.noul) : null;
+        if (vProb !== null && wlProb !== null) {
+          const confidence = Math.round(vProb * 100);
+          const whitelistConfidence = Math.round(wlProb * 100);
+          const whitelisted = whitelistConfidence >= thresholdPct;
+          resultMap.set(id, {
+            violation: true,
+            shouldHide: confidence >= thresholdPct && !whitelisted,
+            confidence,
+            whitelistConfidence
+          });
         }
       }
     });
@@ -361,6 +367,9 @@ export function parseJevDecisions(data, originalItems, confidenceRatio) {
   // Map back to original order
   return originalItems.map(item => {
     const decision = resultMap.get(item.id);
+    if (requiresWhitelistAnswer && !Number.isFinite(decision && decision.whitelistConfidence)) {
+      return { id: item.id, shouldHide: false, confidence: 0, error: true };
+    }
     if (decision) return { id: item.id, ...decision };
     return { id: item.id, shouldHide: false, confidence: 0, error: true };
   });
