@@ -8,7 +8,16 @@
     "mock-server": "node test/mock-jev-server.js",
     "lint": "for f in $(find src test -name '*.js'); do node --check \"$f\" || exit 1; done && echo 'Lint (syntax check): all files OK.'",
     "harness": "node test/static-server.js",
-    "harness:headless": "node test/run-harness-headless.js"
+    "harness:headless": "node test/run-harness-headless.js",
+    "build:zip": "node scripts/build-zip.js"
+  },
+  "homepage": "https://zenfeed.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PiPyL/jev-zenfeed.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PiPyL/jev-zenfeed/issues"
   },
   "keywords": [
     "zenfeed",
