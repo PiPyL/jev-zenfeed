@@ -290,6 +290,8 @@
 
       // --- Initial evaluation ---
       check('Bài vi phạm A bị thu gọn bằng banner', status('A') === 'hidden' && isCollapsed('A') && !!bannerOf('A'), status('A'));
+      const aDesc = bannerOf('A') && bannerOf('A').querySelector('.jev-banner-desc');
+      check('UI banner Threads: không chứa text khớp với tiêu chí', (!aDesc || aDesc.textContent === '') && (!aDesc || window.getComputedStyle(aDesc).display === 'none'));
       check('Bài an toàn B hiển thị bình thường', status('B') === 'safe' && !$('B').classList.contains('jev-analyzing'), status('B'));
       const fStatus = await waitFor(() => status('F') === 'hidden');
       check('Bài vi phạm ở cột THỨ HAI cũng bị ẩn', fStatus && status('F') === 'hidden', status('F'));

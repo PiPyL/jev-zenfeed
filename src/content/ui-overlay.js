@@ -307,7 +307,9 @@ window.JevFB = window.JevFB || {};
       } else if (postEl.querySelector(':scope > .jev-ui')) {
         const desc = postEl.querySelector(':scope > .jev-ui .jev-banner-desc');
         if (desc) {
-          const text = reasonText(decision, options, lang, t);
+          const isThreads = typeof document !== 'undefined' && document.documentElement &&
+            document.documentElement.classList.contains('jev-platform-threads');
+          const text = isThreads ? '' : reasonText(decision, options, lang, t);
           desc.textContent = text;
           desc.title = options.criteria || '';
         }
@@ -384,12 +386,15 @@ window.JevFB = window.JevFB || {};
     const slim = bannersShown >= SLIM_AFTER;
     bannersShown++;
 
+    const isThreads = typeof document !== 'undefined' && document.documentElement &&
+      document.documentElement.classList.contains('jev-platform-threads');
+
     const banner = document.createElement('div');
     banner.className = 'jev-ui jev-banner' + (slim ? ' jev-banner-slim' : '');
     banner.setAttribute('role', 'note');
     banner.dataset.jevLang = lang;
 
-    const detail = reasonText(decision, options, lang, t);
+    const detail = isThreads ? '' : reasonText(decision, options, lang, t);
     const pctTitle = t(lang, 'bannerConfidence', { pct: formatConfidence(decision) });
 
     banner.innerHTML = `

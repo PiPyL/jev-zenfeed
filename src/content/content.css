@@ -956,3 +956,37 @@ html.jev-platform-threads.__fb-dark-mode .jev-floating-card {
   display: none !important;
 }
 
+/* ==================== Threads Collapsed Banner Adaptation ====================
+   On Threads, hidden post and comment banners are single-line and compact,
+   omitting the verbose 'Khớp tiêu chí: ...' description text. */
+html.jev-platform-threads .jev-banner {
+  min-height: 48px !important;
+  padding: 8px 14px !important;
+  gap: 10px !important;
+}
+
+html.jev-platform-threads .jev-banner-icon {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+html.jev-platform-threads .jev-banner-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+html.jev-platform-threads .jev-banner-heading {
+  font-size: 14px !important;
+}
+
+html.jev-platform-threads .jev-banner-desc {
+  display: none !important;
+}
+
+html.jev-platform-threads .jev-btn-reveal {
+  height: 32px !important;
+  padding: 0 12px !important;
+  font-size: 14px !important;
+}
+
+
