@@ -307,10 +307,7 @@ window.JevFB = window.JevFB || {};
       } else if (postEl.querySelector(':scope > .jev-ui')) {
         const desc = postEl.querySelector(':scope > .jev-ui .jev-banner-desc');
         if (desc) {
-          const isThreads = typeof document !== 'undefined' && document.documentElement &&
-            document.documentElement.classList.contains('jev-platform-threads');
-          const text = isThreads ? '' : reasonText(decision, options, lang, t);
-          desc.textContent = text;
+          desc.textContent = '';
           desc.title = options.criteria || '';
         }
         return;
@@ -394,7 +391,7 @@ window.JevFB = window.JevFB || {};
     banner.setAttribute('role', 'note');
     banner.dataset.jevLang = lang;
 
-    const detail = isThreads ? '' : reasonText(decision, options, lang, t);
+    const detail = '';
     const pctTitle = t(lang, 'bannerConfidence', { pct: formatConfidence(decision) });
 
     banner.innerHTML = `
