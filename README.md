@@ -56,10 +56,10 @@ Powered by the **Jev (TypeSafe AI)** System One architecture, ZenFeed delivers s
 ### Method 1: Install from Release ZIP (Recommended)
 
 1. **Download the latest release ZIP:**
-   👉 [**Download zenfeed-v1.0.1.zip (Direct 1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.0.1.zip) or browse all versions at [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
+   👉 [**Download zenfeed-v1.1.0.zip (Direct 1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.1.0.zip) or browse all versions at [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
 2. **Extract the ZIP file:**
-   Unzip `zenfeed-v1.0.1.zip` to a folder on your computer (e.g. `Downloads/zenfeed-v1.0.1`).
-   > 💡 **Important:** Make sure to extract the archive fully (on Windows: right-click `zenfeed-v1.0.1.zip` → **Extract All...**). When loading the extension, choose the directory that directly contains `manifest.json`.
+   Unzip `zenfeed-v1.1.0.zip` to a folder on your computer (e.g. `Downloads/zenfeed-v1.1.0`).
+   > 💡 **Important:** Make sure to extract the archive fully (on Windows: right-click `zenfeed-v1.1.0.zip` → **Extract All...**). When loading the extension, choose the directory that directly contains `manifest.json`.
 3. **Open Chrome Extensions Manager:**
    In Chrome, Edge, Brave, or Cốc Cốc, navigate to:
    ```text
@@ -166,7 +166,7 @@ npm test
 # Run syntax lint checks across all scripts
 npm run lint
 
-# Package release ZIP archive (outputs to dist/zenfeed-v1.0.1.zip)
+# Package release ZIP archive (outputs to dist/zenfeed-v1.1.0.zip)
 npm run build:zip
 
 # Start browser-based DOM test harness
