@@ -550,6 +550,76 @@ try {
   const zipStats = fs.statSync(zipPath);
   assert(zipStats.size > 20000, 'File ZIP phân phối phải có kích thước hợp lệ (>20KB)');
   ok('[Distribution ZIP] Gói phát hành ZIP tồn tại và sẵn sàng cho người dùng cài đặt.');
+
+  // 33. [F1 Fix] Whitelist exception trong criteria đồng bộ với parser
+  const inlineCriteria = 'Tuyển dụng, trừ việc làm IT';
+  const inlineParsed = parseJevDecisions({
+    answers: {
+      post_it__violate: { type: 'noul', noul: 0.90 },
+      post_it__whitelist: { type: 'noul', noul: 0.95 }
+    }
+  }, [{ id: 'post_it' }], 0.70, inlineCriteria, '');
+  assert.strictEqual(inlineParsed[0].shouldHide, false, 'Bài IT có ngoại lệ trong criteria không bị ẩn');
+  assert.strictEqual(inlineParsed[0].whitelistConfidence, 95, 'Whitelist confidence phải được ghi nhận từ ngoại lệ');
+  ok('[F1 Fix] parseJevDecisions đồng bộ nhận diện ngoại lệ trong criteria thành whitelist.');
+
+  // 34. [F2 Fix] Hỗ trợ answer type === "choice" trong nhánh Atomic
+  const choiceAtomicParsed = parseJevDecisions({
+    answers: {
+      post_choice__violate: { type: 'choice', choice: 'violate', confidence: 0.92 },
+      post_choice__whitelist: { type: 'choice', choice: 'none', confidence: 0.88 }
+    }
+  }, [{ id: 'post_choice' }], 0.70, 'Cờ bạc', 'IT');
+  assert.strictEqual(choiceAtomicParsed[0].error, undefined, 'Atomic choice answer không được trả về error:true');
+  assert.strictEqual(choiceAtomicParsed[0].shouldHide, true, 'Atomic choice violate phải ẩn bài');
+  assert.strictEqual(choiceAtomicParsed[0].confidence, 92, 'Confidence lấy từ choice');
+  ok('[F2 Fix] Atomic questions xử lý mượt mà kết quả trả về kiểu choice.');
+
+  // 35. [F3 Fix] Ngoại lệ đa ngôn ngữ và dấu phân cách linh hoạt
+  const { partitionCriteria } = globalThis.__jevDefaults;
+  const viColon = partitionCriteria('Tuyển dụng trừ: việc làm IT');
+  assert.deepStrictEqual(viColon.except, ['việc làm IT'], 'Khớp ngoại lệ có dấu hai chấm');
+  const enParen = partitionCriteria('Job ads unless(tech jobs)');
+  assert.deepStrictEqual(enParen.except, ['tech jobs'], 'Khớp ngoại lệ có dấu ngoặc');
+  const zhSplit = partitionCriteria('垃圾广告 除了 招聘');
+  assert.deepStrictEqual(zhSplit.except, ['招聘'], 'Khớp ngoại lệ tiếng Trung 除了');
+  const deSplit = partitionCriteria('Werbung außer Tech');
+  assert.deepStrictEqual(deSplit.except, ['Tech'], 'Khớp ngoại lệ tiếng Đức außer');
+  ok('[F3 Fix] Ngoại lệ hỗ trợ đa ngôn ngữ (vi, en, zh, de) và dấu phân cách linh hoạt.');
+
+  // 36. [Issue 3 Fix] Regex trích xuất OCR Facebook alt text
+  const OCR_TEST_REGEX = /(?:văn bản cho biết|text that says|chữ hiển thị)\s*['"“]([^'"”]+)['"”]/i;
+  const fbAltVi = "Có thể là hình ảnh về văn bản cho biết 'TÀI XỈU 88' và 1 người";
+  const matchVi = fbAltVi.match(OCR_TEST_REGEX);
+  assert(matchVi && matchVi[1] === 'TÀI XỈU 88', 'Trích xuất chính xác chữ TÀI XỈU 88 từ alt tiếng Việt');
+  const fbAltEn = "May be an image of text that says 'Deposit bonus 100%'";
+  const matchEn = fbAltEn.match(OCR_TEST_REGEX);
+  assert(matchEn && matchEn[1] === 'Deposit bonus 100%', 'Trích xuất chính xác chữ Deposit bonus từ alt tiếng Anh');
+  const fbAltGeneric = "Có thể là hình ảnh về 1 người đang đứng ngoài trời";
+  assert(!fbAltGeneric.match(OCR_TEST_REGEX), 'Không nhận nhầm alt mô tả chung chung thành OCR');
+  ok('[Issue 3 Fix] Trích xuất tự động văn bản OCR từ thuộc tính alt của Facebook.');
+
+  // 37. [N1 Fix] Choice answer thiếu confidence => error (retry), KHÔNG suy ra 100%
+  const noConfParsed = parseJevDecisions({
+    answers: {
+      p_nc__violate: { type: 'choice', choice: 'no' },       // model nói KHÔNG vi phạm, không confidence
+      p_nc__whitelist: { type: 'choice', choice: 'no', confidence: 0.9 }
+    }
+  }, [{ id: 'p_nc' }], 0.70, 'Cá độ', 'IT');
+  assert.strictEqual(noConfParsed[0].error, true, 'Choice thiếu confidence phải trả error để retry');
+  assert.strictEqual(noConfParsed[0].shouldHide, false, 'Không được ẩn bài khi không rõ độ tin cậy');
+  assert(!('confidence' in noConfParsed[0]) || noConfParsed[0].confidence === 0, 'Không được suy diễn confidence 100');
+  ok('[N1 Fix] Choice thiếu confidence không còn bị đảo thành xác suất 100%.');
+
+  // 38. [N3 Fix] whitelistExempts giữ semantics: whitelist phải mạnh >= violation
+  const { whitelistExempts } = await import('../src/background/jev-client.js');
+  assert.strictEqual(whitelistExempts(75, 90), false, 'Whitelist 75 < violation 90 => KHÔNG miễn trừ');
+  assert.strictEqual(whitelistExempts(95, 90), true, 'Whitelist 95 >= violation 90 => miễn trừ');
+  assert.strictEqual(whitelistExempts(60, 50), false, 'Whitelist dưới bar 70 => KHÔNG miễn trừ');
+  // Mirror ở content script phải khớp cùng semantics
+  assert.strictEqual(globalThis.JevFB.shouldHideDecision({ violation: true, confidence: 90, whitelistConfidence: 75 }, 70), true, 'Mirror content script: wl 75 < v 90 vẫn ẩn');
+  assert.strictEqual(globalThis.JevFB.shouldHideDecision({ violation: true, confidence: 90, whitelistConfidence: 95 }, 70), false, 'Mirror content script: wl 95 >= v 90 thì giữ bài');
+  ok('[N3 Fix] whitelistExempts và mirror shouldHideDecision đồng nhất về semantics.');
 } finally {
   mockServer.kill();
 }

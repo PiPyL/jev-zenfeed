@@ -23,6 +23,7 @@ window.JevFB = window.JevFB || {};
   const AUTHOR_SELECTOR = '[data-ad-rendering-role="profile_name"], h2, h3, h4, strong, a[role="link"] span[dir="auto"]';
   const COMMENT_LABEL = /^(comment|reply|bình luận|phản hồi|trả lời)/i;
   const GENERIC_ALT = /^(có thể là|may be)\b/i;
+  const OCR_TEXT_REGEX = /(?:văn bản cho biết|text that says|chữ hiển thị)\s*['"“]([^'"”]+)['"”]/i;
 
   // Length of body prefix used for the element identity (see below)
   const IDENTITY_PREFIX_CHARS = 120;
@@ -99,13 +100,22 @@ window.JevFB = window.JevFB || {};
       }
     }
 
-    // Auxiliary text from meaningful image alt text (short/media posts)
+    // Auxiliary text from meaningful image alt text or Facebook auto-OCR text (short/media posts)
     for (const img of postEl.querySelectorAll('img[alt]')) {
       const alt = (img.getAttribute('alt') || '').trim();
-      if (!alt || alt.length < 4 || GENERIC_ALT.test(alt) || isExcluded(img, postEl)) continue;
-      if (!seen.has(alt)) {
-        seen.add(alt);
-        parts.push(`[Image: ${alt.slice(0, 150)}]`);
+      if (!alt || alt.length < 4 || isExcluded(img, postEl)) continue;
+      const ocrMatch = alt.match(OCR_TEXT_REGEX);
+      if (ocrMatch && ocrMatch[1]) {
+        const text = ocrMatch[1].trim();
+        if (text && !seen.has(text)) {
+          seen.add(text);
+          parts.push(`[Image text: ${text.slice(0, 150)}]`);
+        }
+      } else if (!GENERIC_ALT.test(alt)) {
+        if (!seen.has(alt)) {
+          seen.add(alt);
+          parts.push(`[Image: ${alt.slice(0, 150)}]`);
+        }
       }
     }
 
