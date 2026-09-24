@@ -117,6 +117,114 @@ window.JevFB = window.JevFB || {};
     return pressable || el;
   };
 
+  /**
+   * Determine if an element represents a feed boundary (e.g. column, feed root, body)
+   * beyond which we must not look for grouped thread replies.
+   */
+  function isFeedBoundary(el) {
+    if (!el || el === document.body || el === document.documentElement) return true;
+    if (el.id === 'feedColumn') return true;
+    const role = el.getAttribute && el.getAttribute('role');
+    if (role === 'region' || role === 'feed' || role === 'main') return true;
+    if (el.tagName === 'MAIN') return true;
+    const ariaLabel = el.getAttribute && el.getAttribute('aria-label');
+    if (ariaLabel === 'Column body') return true;
+    return false;
+  }
+  JevFB.isFeedBoundary = isFeedBoundary;
+
+  /**
+   * Return valid top-level post cards under `root` (excluding quoted posts nested inside cards).
+   */
+  function getFeedCardsUnder(root) {
+    if (!root || !root.querySelectorAll) return [];
+    const matches = root.querySelectorAll(POST_CONTAINER_SELECTOR);
+    const valid = [];
+    matches.forEach(p => {
+      if (p.closest && p.closest('.jev-ui')) return;
+      if (!isInFeedRegion(p)) return;
+      valid.push(p);
+    });
+    const set = new Set(valid);
+    return valid.filter(c => {
+      for (let p = c.parentElement; p && p !== root; p = p.parentElement) {
+        if (set.has(p)) return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Find the enclosing container for a single thread item (root post + its replies).
+   */
+  function getThreadContainer(postEl) {
+    if (!postEl || !postEl.parentElement) return null;
+
+    // 1. In production Threads web, each feed item is enclosed in a data-pagelet
+    const pagelet = postEl.closest && postEl.closest('[data-pagelet]');
+    if (pagelet && !isFeedBoundary(pagelet)) {
+      const cards = getFeedCardsUnder(pagelet);
+      if (cards.length > 0 && cards.length <= 8) return pagelet;
+    }
+
+    // 2. Otherwise walk up ancestors looking for the thread item container
+    let curr = postEl.parentElement;
+    while (curr && !isFeedBoundary(curr)) {
+      const cards = getFeedCardsUnder(curr);
+      if (cards.length > 1) {
+        if (cards.length <= 8) return curr;
+        return null;
+      }
+      if (!curr.parentElement || isFeedBoundary(curr.parentElement)) {
+        return curr;
+      }
+      curr = curr.parentElement;
+    }
+    return null;
+  }
+  JevFB.getThreadContainer = getThreadContainer;
+
+  /**
+   * Get all reply post cards belonging to this root post in the feed.
+   * If postEl is not the root of a multi-post thread item, returns [].
+   */
+  function getThreadReplies(postEl) {
+    if (!postEl) return [];
+    const container = getThreadContainer(postEl);
+    if (!container) return [];
+    const cards = getFeedCardsUnder(container);
+    if (cards.length > 1 && cards[0] === postEl) {
+      return cards.slice(1);
+    }
+    return [];
+  }
+  JevFB.getThreadReplies = getThreadReplies;
+
+  /**
+   * Get the root post card for a given reply card, or null if postEl is itself root/standalone.
+   */
+  function getRootPost(postEl) {
+    if (!postEl) return null;
+    const container = getThreadContainer(postEl);
+    if (!container) return null;
+    const cards = getFeedCardsUnder(container);
+    if (cards.length > 1 && cards[0] !== postEl && cards.includes(postEl)) {
+      return cards[0];
+    }
+    return null;
+  }
+  JevFB.getRootPost = getRootPost;
+
+  /**
+   * Check if postEl is a reply whose parent root post is currently hidden.
+   */
+  function isReplyOfHiddenPost(postEl) {
+    const root = getRootPost(postEl);
+    if (!root) return false;
+    return root.dataset.jevStatus === 'hidden' && !root.classList.contains('jev-revealed');
+  }
+  JevFB.isReplyOfHiddenPost = isReplyOfHiddenPost;
+
   // Mark the platform for the shared stylesheet: Threads toggles dark mode
   // with the same `__fb-dark-mode` class Facebook uses on <html>, so the CSS
   // needs a platform marker to theme Threads dark without touching Facebook's

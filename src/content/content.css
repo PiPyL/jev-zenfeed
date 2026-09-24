@@ -946,3 +946,13 @@ html.jev-platform-threads.__fb-dark-mode .jev-floating-card {
   background: rgba(28, 28, 30, 0.94) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
+
+/* ==================== Threads Sibling Reply Cascade ====================
+   When a root post violates criteria and is collapsed or blurred, any
+   associated replies rendered as separate sibling pressable containers in
+   the feed must be cleanly hidden along with their wrappers. */
+.jev-reply-hidden,
+.jev-reply-wrapper-hidden {
+  display: none !important;
+}
+
