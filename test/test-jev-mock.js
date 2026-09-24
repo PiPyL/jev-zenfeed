@@ -565,6 +565,28 @@ try {
   const fbAltGeneric = "Có thể là hình ảnh về 1 người đang đứng ngoài trời";
   assert(!fbAltGeneric.match(OCR_TEST_REGEX), 'Không nhận nhầm alt mô tả chung chung thành OCR');
   ok('[Issue 3 Fix] Trích xuất tự động văn bản OCR từ thuộc tính alt của Facebook.');
+
+  // 37. [N1 Fix] Choice answer thiếu confidence => error (retry), KHÔNG suy ra 100%
+  const noConfParsed = parseJevDecisions({
+    answers: {
+      p_nc__violate: { type: 'choice', choice: 'no' },       // model nói KHÔNG vi phạm, không confidence
+      p_nc__whitelist: { type: 'choice', choice: 'no', confidence: 0.9 }
+    }
+  }, [{ id: 'p_nc' }], 0.70, 'Cá độ', 'IT');
+  assert.strictEqual(noConfParsed[0].error, true, 'Choice thiếu confidence phải trả error để retry');
+  assert.strictEqual(noConfParsed[0].shouldHide, false, 'Không được ẩn bài khi không rõ độ tin cậy');
+  assert(!('confidence' in noConfParsed[0]) || noConfParsed[0].confidence === 0, 'Không được suy diễn confidence 100');
+  ok('[N1 Fix] Choice thiếu confidence không còn bị đảo thành xác suất 100%.');
+
+  // 38. [N3 Fix] whitelistExempts giữ semantics: whitelist phải mạnh >= violation
+  const { whitelistExempts } = await import('../src/background/jev-client.js');
+  assert.strictEqual(whitelistExempts(75, 90), false, 'Whitelist 75 < violation 90 => KHÔNG miễn trừ');
+  assert.strictEqual(whitelistExempts(95, 90), true, 'Whitelist 95 >= violation 90 => miễn trừ');
+  assert.strictEqual(whitelistExempts(60, 50), false, 'Whitelist dưới bar 70 => KHÔNG miễn trừ');
+  // Mirror ở content script phải khớp cùng semantics
+  assert.strictEqual(globalThis.JevFB.shouldHideDecision({ violation: true, confidence: 90, whitelistConfidence: 75 }, 70), true, 'Mirror content script: wl 75 < v 90 vẫn ẩn');
+  assert.strictEqual(globalThis.JevFB.shouldHideDecision({ violation: true, confidence: 90, whitelistConfidence: 95 }, 70), false, 'Mirror content script: wl 95 >= v 90 thì giữ bài');
+  ok('[N3 Fix] whitelistExempts và mirror shouldHideDecision đồng nhất về semantics.');
 } finally {
   mockServer.kill();
 }

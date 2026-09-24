@@ -155,10 +155,13 @@ const WHITELIST_RUBRIC = Object.freeze({
 export const WHITELIST_THRESHOLD = 70;
 
 /**
- * A whitelist hit exempts a post once it clears its own threshold bar.
- * The hide slider must not move this bar.
+ * A whitelist hit exempts a post only when it is at least as strong as the
+ * violation and clears its own bar. The hide slider must not move this bar:
+ * raising it used to withdraw exemptions and hide posts the user meant to keep.
+ * MUST stay in sync with shouldHideDecision in utils/settings-defaults.js —
+ * the content script re-gates cached RAW verdicts with that mirror (N3).
  * @param {number} whitelistConfidence
- * @param {number} [_violationConfidence]
+ * @param {number} violationConfidence
  */
 export function whitelistExempts(whitelistConfidence, violationConfidence) {
   return Number.isFinite(whitelistConfidence)
@@ -334,7 +337,11 @@ function extractAnswerProbability(ans, positiveChoice) {
   if (ans.type === 'noul') return toProbability(ans.noul);
   if (ans.type === 'choice') {
     const isPositive = ans.choice === positiveChoice || ans.choice === 'yes' || ans.choice === 'true';
-    const prob = toProbability(ans.confidence) ?? (isPositive ? 1 : 0);
+    // Missing confidence means the strength is unknown — return null so the
+    // item is treated as an error and retried (F1). Guessing 0 here would
+    // invert a negative answer into a 100% positive probability (N1).
+    const prob = toProbability(ans.confidence);
+    if (prob === null) return null;
     return isPositive ? prob : (1 - prob);
   }
   return null;
