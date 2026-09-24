@@ -135,9 +135,9 @@ ok('manifest.json có entry Threads (threads.com/threads.net): dùng chung engin
 await import('../src/content/th-selectors.js');
 await import('../src/content/th-text-extractor.js');
 const thApi = ['isNewsFeedRoute', 'isInFeedRegion', 'getPostsWithin', 'getAllPosts', 'getTopPostContainer',
-  'extractPostData', 'isSamePost'];
+  'getThreadReplies', 'getRootPost', 'isReplyOfHiddenPost', 'extractPostData', 'isSamePost'];
 thApi.forEach(fn => assert.strictEqual(typeof globalThis.JevFB[fn], 'function', `Thiếu JevFB.${fn} cho Threads`));
-ok('Module Threads cung cấp đủ contract engine (route, region, posts, extractor, isSamePost).');
+ok('Module Threads cung cấp đủ contract engine (route, region, posts, cascade, extractor, isSamePost).');
 
 // 2. FastHash — single source
 await import('../src/utils/fast-hash.js');

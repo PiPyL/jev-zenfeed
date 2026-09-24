@@ -144,6 +144,23 @@
       return card;
     }
 
+    function makeThreadItem(rootSpec, replySpecs = []) {
+      const container = document.createElement('div');
+      container.className = 'x9f619 x1n2onr6 x1ja2u2z';
+      const rootWrap = document.createElement('div');
+      rootWrap.className = 'x1a2a7pz x1n2onr6';
+      rootWrap.appendChild(makeCard(rootSpec));
+      container.appendChild(rootWrap);
+
+      replySpecs.forEach(spec => {
+        const replyWrap = document.createElement('div');
+        replyWrap.className = 'x1a2a7pz x1n2onr6';
+        replyWrap.appendChild(makeCard(spec));
+        container.appendChild(replyWrap);
+      });
+      return container;
+    }
+
     const column = document.getElementById('feedColumn');
     column.appendChild(makeCard({ id: 'A', name: 'Nhà cái X', handle: 'nhacaix', body: 'Kèo cá độ bóng đá đêm nay, vào ngay!' }));
     column.appendChild(makeCard({ id: 'B', name: 'Bạn Lan', handle: 'lanbtc', body: 'Hôm nay mình đi dạo công viên rất vui' }));
@@ -153,6 +170,15 @@
       repostedBy: { name: 'Bạn Lan', handle: 'lanbtc' } }));
     column.appendChild(makeCard({ id: 'E', name: 'Bạn Minh', handle: 'minhnguyen', body: 'Ảnh con mèo nhà mình dễ thương quá',
       alt: 'Một chú mèo cam đang ngủ' }));
+
+    const threadItem1 = makeThreadItem(
+      { id: 'T_ROOT', name: 'Nhà cái VIP', handle: 'nhacaivip', body: 'Tặng 100k trải nghiệm cá độ bóng đá' },
+      [
+        { id: 'T_REP1', name: 'Người hỏi A', handle: 'hoia', body: 'Chương trình này kết thúc khi nào vậy ad?' },
+        { id: 'T_REP2', name: 'Người hỏi B', handle: 'hoib', body: 'Đăng ký nhận quà như thế nào' }
+      ]
+    );
+    column.appendChild(threadItem1);
     // A "For you"/"Following" multi-column layout renders several columns; a
     // post in a SECOND column body must be filtered exactly like the first.
     const column2 = document.createElement('div');
@@ -264,6 +290,8 @@
 
       // --- Initial evaluation ---
       check('Bài vi phạm A bị thu gọn bằng banner', status('A') === 'hidden' && isCollapsed('A') && !!bannerOf('A'), status('A'));
+      const aDesc = bannerOf('A') && bannerOf('A').querySelector('.jev-banner-desc');
+      check('UI banner Threads: không chứa text khớp với tiêu chí', (!aDesc || aDesc.textContent === '') && (!aDesc || window.getComputedStyle(aDesc).display === 'none'));
       check('Bài an toàn B hiển thị bình thường', status('B') === 'safe' && !$('B').classList.contains('jev-analyzing'), status('B'));
       const fStatus = await waitFor(() => status('F') === 'hidden');
       check('Bài vi phạm ở cột THỨ HAI cũng bị ẩn', fStatus && status('F') === 'hidden', status('F'));
@@ -277,6 +305,25 @@
 
       // Quoted post must not be processed as its own feed post
       check('Bài quote KHÔNG bị xử lý thành bài riêng', !status('CQ') && !$('CQ').hasAttribute('data-jev-status'), status('CQ'));
+
+      // --- Threads Reply Cascade: root violation hides sibling replies ---
+      await waitFor(() => status('T_ROOT') === 'hidden', 4000);
+      check('Bài gốc vi phạm trong thread bị thu gọn bằng banner', status('T_ROOT') === 'hidden' && isCollapsed('T_ROOT') && !!bannerOf('T_ROOT'));
+      check('Reply 1 tự động bị ẩn theo bài gốc (cascade hide)', $('T_REP1').classList.contains('jev-reply-hidden') && $('T_REP1').style.display === 'none');
+      check('Wrapper của Reply 1 cũng bị ẩn tránh khoảng trống', $('T_REP1').parentElement.classList.contains('jev-reply-wrapper-hidden') && $('T_REP1').parentElement.style.display === 'none');
+      check('Reply 2 cũng tự động bị ẩn theo bài gốc', $('T_REP2').classList.contains('jev-reply-hidden') && $('T_REP2').style.display === 'none');
+
+      // Bấm "Xem" trên banner bài gốc: bài gốc và các replies đều hiển thị lại
+      bannerOf('T_ROOT').querySelector('.jev-btn-reveal').click();
+      check('Bấm "Xem": bài gốc mở và các reply hiển thị lại', !isCollapsed('T_ROOT') && $('T_REP1').style.display !== 'none' && $('T_REP2').style.display !== 'none');
+
+      // Bấm "Thu gọn lại": các replies lại bị ẩn theo
+      bannerOf('T_ROOT').querySelector('.jev-btn-reveal').click();
+      check('Bấm "Thu gọn lại": các reply lại tự động bị ẩn theo bài gốc', isCollapsed('T_ROOT') && $('T_REP1').style.display === 'none' && $('T_REP2').style.display === 'none');
+
+      // Bấm "Không phải spam": bài gốc và các replies đều được khôi phục
+      bannerOf('T_ROOT').querySelector('.jev-btn-safe').click();
+      check('"Không phải spam": bài gốc và các reply đều được khôi phục', !isCollapsed('T_ROOT') && $('T_REP1').style.display !== 'none' && !$('T_REP1').classList.contains('jev-reply-hidden'));
 
       // --- Re-check of hidden post: no re-evaluation, reveal preserved ---
       bannerOf('A').querySelector('.jev-btn-reveal').click();

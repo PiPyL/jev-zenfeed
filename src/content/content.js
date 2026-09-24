@@ -506,6 +506,22 @@
   function evaluatePost(postEl) {
     if (!postEl || !postEl.isConnected || !config.extensionEnabled) return;
 
+    // Threads: if this post is a reply of an already-hidden root post, cascade hide immediately
+    if (typeof JevFB.isReplyOfHiddenPost === 'function' && JevFB.isReplyOfHiddenPost(postEl)) {
+      postEl.classList.add('jev-reply-hidden');
+      postEl.dataset.jevParentHidden = 'true';
+      postEl.dataset.jevStatus = 'parent_hidden';
+      postEl.style.display = 'none';
+      const container = typeof JevFB.getThreadContainer === 'function' ? JevFB.getThreadContainer(postEl) : null;
+      const wrapper = (postEl.parentElement && postEl.parentElement !== container) ? postEl.parentElement : null;
+      if (wrapper) {
+        wrapper.classList.add('jev-reply-wrapper-hidden');
+        wrapper.dataset.jevParentHidden = 'true';
+        wrapper.style.display = 'none';
+      }
+      return;
+    }
+
     let st = getState(postEl);
     if (st.pending) return;
 
@@ -857,6 +873,20 @@
     if (el.dataset.jevRemoved || el.querySelector(':scope > .jev-ui')) JevFB.unhidePost(el);
     delete el.dataset.jevHideMode;
     el.dataset.jevStatus = 'safe';
+
+    // Threads: if this post is a reply of a hidden root post, it must stay hidden
+    if (typeof JevFB.isReplyOfHiddenPost === 'function' && JevFB.isReplyOfHiddenPost(el)) {
+      el.classList.add('jev-reply-hidden');
+      el.dataset.jevParentHidden = 'true';
+      el.style.display = 'none';
+      const container = typeof JevFB.getThreadContainer === 'function' ? JevFB.getThreadContainer(el) : null;
+      const wrapper = (el.parentElement && el.parentElement !== container) ? el.parentElement : null;
+      if (wrapper) {
+        wrapper.classList.add('jev-reply-wrapper-hidden');
+        wrapper.dataset.jevParentHidden = 'true';
+        wrapper.style.display = 'none';
+      }
+    }
   }
 
   /**

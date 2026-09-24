@@ -946,3 +946,47 @@ html.jev-platform-threads.__fb-dark-mode .jev-floating-card {
   background: rgba(28, 28, 30, 0.94) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
+
+/* ==================== Threads Sibling Reply Cascade ====================
+   When a root post violates criteria and is collapsed or blurred, any
+   associated replies rendered as separate sibling pressable containers in
+   the feed must be cleanly hidden along with their wrappers. */
+.jev-reply-hidden,
+.jev-reply-wrapper-hidden {
+  display: none !important;
+}
+
+/* ==================== Threads Collapsed Banner Adaptation ====================
+   On Threads, hidden post and comment banners are single-line and compact,
+   omitting the verbose 'Khớp tiêu chí: ...' description text. */
+html.jev-platform-threads .jev-banner {
+  min-height: 48px !important;
+  padding: 8px 14px !important;
+  gap: 10px !important;
+}
+
+html.jev-platform-threads .jev-banner-icon {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+html.jev-platform-threads .jev-banner-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+html.jev-platform-threads .jev-banner-heading {
+  font-size: 14px !important;
+}
+
+html.jev-platform-threads .jev-banner-desc {
+  display: none !important;
+}
+
+html.jev-platform-threads .jev-btn-reveal {
+  height: 32px !important;
+  padding: 0 12px !important;
+  font-size: 14px !important;
+}
+
+

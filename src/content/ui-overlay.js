@@ -182,6 +182,52 @@ window.JevFB = window.JevFB || {};
   };
 
   /**
+   * Cascade hide any sibling replies belonging to this thread post.
+   */
+  function cascadeHideReplies(postEl) {
+    if (typeof JevFB.getThreadReplies !== 'function') return;
+    const replies = JevFB.getThreadReplies(postEl);
+    if (!replies.length) return;
+    const container = typeof JevFB.getThreadContainer === 'function' ? JevFB.getThreadContainer(postEl) : null;
+    replies.forEach(reply => {
+      reply.classList.add('jev-reply-hidden');
+      reply.dataset.jevParentHidden = 'true';
+      reply.style.display = 'none';
+      const wrapper = (reply.parentElement && reply.parentElement !== container) ? reply.parentElement : null;
+      if (wrapper) {
+        wrapper.classList.add('jev-reply-wrapper-hidden');
+        wrapper.dataset.jevParentHidden = 'true';
+        wrapper.style.display = 'none';
+      }
+    });
+  }
+  JevFB.cascadeHideReplies = cascadeHideReplies;
+
+  /**
+   * Cascade restore any sibling replies belonging to this thread post.
+   */
+  function cascadeRestoreReplies(postEl) {
+    if (typeof JevFB.getThreadReplies !== 'function') return;
+    const replies = JevFB.getThreadReplies(postEl);
+    if (!replies.length) return;
+    replies.forEach(reply => {
+      reply.classList.remove('jev-reply-hidden');
+      delete reply.dataset.jevParentHidden;
+      if (!reply.dataset.jevRemoved) {
+        reply.style.display = '';
+      }
+      if (reply.parentElement) {
+        reply.parentElement.classList.remove('jev-reply-wrapper-hidden');
+        if (reply.parentElement.dataset.jevParentHidden) {
+          delete reply.parentElement.dataset.jevParentHidden;
+          reply.parentElement.style.display = '';
+        }
+      }
+    });
+  }
+  JevFB.cascadeRestoreReplies = cascadeRestoreReplies;
+
+  /**
    * Remove every hiding/labeling effect (banner/blur/remove/corner label) so
    * the post shows exactly as Facebook rendered it.
    * @param {HTMLElement} postEl
@@ -191,17 +237,22 @@ window.JevFB = window.JevFB || {};
     stopBlurObservers(postEl);
     restoreBlurredContent(postEl);
     postEl.classList.remove(
-      'jev-post-collapsed', 'jev-revealed', 'jev-blurred-post', 'jev-blur-classic', 'jev-relative-anchor', 'jev-banner-slim'
+      'jev-post-collapsed', 'jev-revealed', 'jev-blurred-post', 'jev-blur-classic', 'jev-relative-anchor', 'jev-banner-slim', 'jev-reply-hidden'
     );
     postEl.style.removeProperty('--jev-classic-blur');
     postEl.style.removeProperty('--jev-classic-opacity');
     postEl.style.removeProperty('--jev-classic-wash');
     delete postEl.dataset.jevBlurKey;
+    delete postEl.dataset.jevParentHidden;
     if (postEl.dataset.jevRemoved) {
       postEl.style.display = '';
       delete postEl.dataset.jevRemoved;
+    } else if (postEl.style.display === 'none' && !postEl.classList.contains('jev-reply-hidden')) {
+      postEl.style.display = '';
     }
     postEl.querySelectorAll(':scope > .jev-ui').forEach(n => n.remove());
+
+    cascadeRestoreReplies(postEl);
   };
 
   /** Preset, topic, quotes, reveal gesture, and language. Strength and tint are not included. */
@@ -256,7 +307,9 @@ window.JevFB = window.JevFB || {};
       } else if (postEl.querySelector(':scope > .jev-ui')) {
         const desc = postEl.querySelector(':scope > .jev-ui .jev-banner-desc');
         if (desc) {
-          const text = reasonText(decision, options, lang, t);
+          const isThreads = typeof document !== 'undefined' && document.documentElement &&
+            document.documentElement.classList.contains('jev-platform-threads');
+          const text = isThreads ? '' : reasonText(decision, options, lang, t);
           desc.textContent = text;
           desc.title = options.criteria || '';
         }
@@ -272,6 +325,7 @@ window.JevFB = window.JevFB || {};
     if (mode === 'remove') {
       postEl.dataset.jevRemoved = 'true';
       postEl.style.display = 'none';
+      cascadeHideReplies(postEl);
       return;
     }
 
@@ -281,11 +335,13 @@ window.JevFB = window.JevFB || {};
       postEl.dataset.jevBlurKey = blurStructureKey(options);
       isolateBlurredContent(postEl);
       JevFB.injectBlurControls(postEl, decision, options);
+      cascadeHideReplies(postEl);
       return;
     }
 
     // Mode 3: Collapsed Banner (Default & Recommended)
     JevFB.injectCollapsedBanner(postEl, decision, options);
+    cascadeHideReplies(postEl);
   };
 
   JevFB.syncBlurAccessibility = function(postEl) {
@@ -330,12 +386,15 @@ window.JevFB = window.JevFB || {};
     const slim = bannersShown >= SLIM_AFTER;
     bannersShown++;
 
+    const isThreads = typeof document !== 'undefined' && document.documentElement &&
+      document.documentElement.classList.contains('jev-platform-threads');
+
     const banner = document.createElement('div');
     banner.className = 'jev-ui jev-banner' + (slim ? ' jev-banner-slim' : '');
     banner.setAttribute('role', 'note');
     banner.dataset.jevLang = lang;
 
-    const detail = reasonText(decision, options, lang, t);
+    const detail = isThreads ? '' : reasonText(decision, options, lang, t);
     const pctTitle = t(lang, 'bannerConfidence', { pct: formatConfidence(decision) });
 
     banner.innerHTML = `
@@ -362,6 +421,7 @@ window.JevFB = window.JevFB || {};
     bindMarkSafe(banner.querySelector('.jev-btn-safe'), postEl);
 
     postEl.prepend(banner);
+    cascadeHideReplies(postEl);
   };
 
   /**
@@ -380,6 +440,12 @@ window.JevFB = window.JevFB || {};
       : `${ICON_EYE_OFF}<span class="jev-btn-label">${escapeHtml(t(lang, 'btnHideAgain'))}</span>`;
     btn.classList.toggle('active', !isRevealed);
     btn.setAttribute('aria-expanded', String(!isRevealed));
+
+    if (isRevealed) {
+      cascadeHideReplies(postEl);
+    } else {
+      cascadeRestoreReplies(postEl);
+    }
   };
 
   /**
@@ -406,6 +472,7 @@ window.JevFB = window.JevFB || {};
       postEl.classList.remove('jev-blurred-post', 'jev-blur-classic');
       postEl.classList.add('jev-revealed');
       canvasOrTag.remove();
+      cascadeRestoreReplies(postEl);
     };
 
     if (friction === 'hold') {
