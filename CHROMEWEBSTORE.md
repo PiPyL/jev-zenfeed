@@ -53,7 +53,7 @@ PERMISSIONS NOTICE
 • "Host Permissions": Required to read post text elements on supported social feed domains and connect to your chosen AI analysis endpoint.
 
 DISCLAIMER & TRADEMARK
-Facebook™ is a trademark of Meta Platforms, Inc. ZenFeed is an independent open-source tool and is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc.
+Facebook™ and Threads™ are trademarks of Meta Platforms, Inc. ZenFeed is an independent open-source tool and is not affiliated with, endorsed by, or sponsored by Meta Platforms, Inc.
 
 SUPPORT & COMMUNITY
 • Open Source: https://github.com/PiPyL/jev-zenfeed
@@ -98,7 +98,7 @@ Khi submit trên Developer Dashboard, Google yêu cầu giải trình cho từng
 | Permission | Justification (Copy vào form CWS) |
 |---|---|
 | `storage` | Required to persist user settings (such as filter criteria, confidence threshold, UI language, and hide mode) and to store the offline LRU decision cache so that repeated posts do not require redundant network calls. |
-| `scripting` | Required to programmatically inject the content script and styles into already open Facebook tabs upon extension installation or update, enabling immediate filtering without requiring the user to manually refresh their open tabs. |
+| `scripting` | Required to programmatically inject the content scripts and styles into already open Facebook/Threads tabs upon extension installation or update, enabling immediate filtering without requiring the user to manually refresh their open tabs. |
 
 ### Host Permissions
 

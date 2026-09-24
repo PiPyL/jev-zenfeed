@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Jev content-script harness — Threads</title>
+  <!--
+    Browser test for the Threads platform content scripts (real files, manifest
+    order) against a fake Threads DOM and a fake chrome.* API. The simulated
+    card mirrors the real threads.com markup verified on logged-out and
+    logged-in layouts (2026-09): div[data-pressable-container] post cards with
+    a /@handle/post/ID permalink, <time>, dir="auto" text leaves and
+    role="button" action bars.
+    Run: npm run harness  → open http://localhost:8765/test/threads-content-harness.html
+    Result: the page lists PASS/FAIL; window.__harnessResult = { passed, failed, done }.
+  -->
+  <link rel="stylesheet" href="../src/content/content.css">
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 16px; }
+    #results { position: fixed; right: 8px; top: 8px; width: 420px; max-height: 95vh; overflow: auto;
+      background: #fff; border: 1px solid #ccc; padding: 8px; font-size: 12px; z-index: 1000; }
+    .pass { color: #0a7a2f; } .fail { color: #c00; font-weight: bold; }
+    div[data-pressable-container] { border: 1px solid #ddd; margin: 4px 0; padding: 6px; width: 420px; min-height: 40px; }
+  </style>
+</head>
+<body>
+  <div id="results"><b>Jev Threads harness</b><div id="log"></div></div>
+  <!-- Same spacer contract as the Facebook harness: every post starts below
+       the reading zone but within the default prefetch reach. -->
+  <div id="spacer"></div>
+  <div id="feedColumn" role="region" aria-label="Column body"></div>
+
+  <script>
+    // ==================== Fake chrome.* ====================
+    const store = {
+      extensionEnabled: true, filterCriteria: 'cá độ', confidenceThreshold: 70,
+      hideMode: 'banner', filterMode: 'smooth', apiKey: 'secret-key', apiUrl: 'http://localhost:3000'
+    };
+    const changeListeners = [];
+    const requestedKeys = new Set();
+    const calls = [];                 // every EVALUATE_BATCH payload
+    const messages = [];              // every other runtime message
+    let backendMode = 'ok';           // 'ok' | 'error'
+    let backendDelayMs = 60;
+
+    function backend(items) {
+      calls.push(items);
+      const crit = String(store.filterCriteria || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+      return new Promise((resolve) => setTimeout(() => {
+        if (!chrome.runtime.id) { resolve(items.map(i => ({ id: i.id, shouldHide: false, confidence: 0, error: true }))); return; }
+        resolve(items.map(i => {
+          if (backendMode === 'error') return { id: i.id, shouldHide: false, confidence: 0, error: true };
+          const hit = crit.some(c => i.text.toLowerCase().includes(c));
+          return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3, violation: hit };
+        }));
+      }, backendDelayMs));
+    }
+
+    window.chrome = {
+      runtime: {
+        id: 'harness',
+        sendMessage(msg) {
+          if (!chrome.runtime.id) throw new Error('Extension context invalidated.');
+          if (msg.action === 'EVALUATE_BATCH') return backend(msg.items);
+          messages.push(msg);
+          return Promise.resolve();
+        },
+        onMessage: { addListener() {} }
+      },
+      storage: {
+        local: {
+          get(keys, cb) {
+            const out = {};
+            Object.entries(keys).forEach(([k, d]) => { requestedKeys.add(k); out[k] = k in store ? store[k] : d; });
+            setTimeout(() => cb(out), 0);
+          },
+          set(obj) {
+            const changes = {};
+            Object.entries(obj).forEach(([k, v]) => { changes[k] = { oldValue: store[k], newValue: v }; store[k] = v; });
+            setTimeout(() => changeListeners.forEach(l => l(changes, 'local')), 0);
+            return Promise.resolve();
+          }
+        },
+        onChanged: { addListener(l) { changeListeners.push(l); } }
+      }
+    };
+
+    document.getElementById('spacer').style.height = `${Math.round((window.innerHeight || 800) * 0.9)}px`;
+    document.body.style.minHeight = '8000px';
+
+    // ==================== Fake Threads DOM ====================
+    // One pressable-container card per feed post, mirroring the real markup:
+    // header (avatar, profile link with translate="no" name, optional topic
+    // tag, permalink-wrapped <time>, More menu), body block with leaf
+    // dir="auto" spans, action bar with role="button" + numeric count leaves.
+    function postHTML({ id, name, handle, body, tag, alt, translate = false, firstThread = false, quoted = null, repostedBy = null }) {
+      const header = `
+        <div>
+          ${firstThread ? '<div><span dir="auto"><span>First thread</span></span></div>' : ''}
+          ${repostedBy ? `<div><span dir="auto"><a href="/@${repostedBy.handle}" role="link"><span dir="auto" translate="no"><span>${repostedBy.name}</span></span></a> reposted</span></div>` : ''}
+          <div>
+            <div role="button" tabindex="0">
+              <img alt="${handle}'s profile picture" src="/avatar" width="36" height="36">
+            </div>
+            <div>
+              <a href="/@${handle}" role="link" tabindex="0"><span dir="auto" translate="no"><span>${name}</span></span></a>
+              ${tag ? `<a href="/search?q=${encodeURIComponent(tag)}&serp_type=tags&tag_id=1" role="link" tabindex="0"><span dir="auto"><span>${tag}</span></span></a>` : ''}
+              <span><a href="/@${handle}/post/${id}" role="link" tabindex="0"><time datetime="2026-09-24T00:00:00.000Z" title="Thursday, September 24, 2026 at 1:06 AM"><abbr aria-label="6 hours ago"><span>6h</span></abbr></time></a></span>
+              <div role="button" tabindex="0" aria-haspopup="menu"><svg title="More"><title>More</title></svg></div>
+            </div>
+          </div>
+        </div>`;
+      const bodyHtml = body != null ? `
+        <div>
+          <div>
+            <span dir="auto"><span>${body}${translate ? '<div role="button" tabindex="0"><span>Translate</span></div>' : ''}</span></span>
+          </div>
+        </div>` : '';
+      const mediaHtml = alt ? `<div><img alt="${alt}" src="/photo" width="880"></div>` : '';
+      const quotedHtml = quoted ? `
+        <div>
+          <div data-pressable-container="true" id="${quoted.id}">
+            <div>
+              <a href="/@${quoted.handle}" role="link"><span dir="auto" translate="no"><span>${quoted.name}</span></span></a>
+              <span><a href="/@${quoted.handle}/post/${quoted.id}" role="link"><time datetime="2026-09-23T00:00:00.000Z"><abbr aria-label="1 day ago"><span>1d</span></abbr></time></a></span>
+            </div>
+            <div><span dir="auto"><span>${quoted.body}</span></span></div>
+          </div>
+        </div>` : '';
+      const actionsHtml = `
+        <div>
+          <div role="button" tabindex="0"><svg title="Like"></svg><span dir="auto"><div><span>2</span></div></span></div>
+          <div role="button" tabindex="0"><svg title="Reply"></svg><span dir="auto"><div><span>8</span></div></span></div>
+          <div role="button" tabindex="0"><svg title="Repost"></svg><span dir="auto"><div><span></span></div></span></div>
+          <div role="button" tabindex="0"><svg title="Share"></svg></div>
+        </div>`;
+      return `${header}${bodyHtml}${mediaHtml}${quotedHtml}${actionsHtml}`;
+    }
+
+    function makeCard(spec) {
+      const card = document.createElement('div');
+      card.setAttribute('data-pressable-container', 'true');
+      card.id = spec.id;
+      card.innerHTML = postHTML(spec);
+      return card;
+    }
+
+    const column = document.getElementById('feedColumn');
+    column.appendChild(makeCard({ id: 'A', name: 'Nhà cái X', handle: 'nhacaix', body: 'Kèo cá độ bóng đá đêm nay, vào ngay!' }));
+    column.appendChild(makeCard({ id: 'B', name: 'Bạn Lan', handle: 'lanbtc', body: 'Hôm nay mình đi dạo công viên rất vui' }));
+    column.appendChild(makeCard({ id: 'C', name: 'Ad & Quote', handle: 'adquote', body: 'Nhận cá độ tỉ số, hoàn tiền 100%',
+      quoted: { id: 'CQ', name: 'Tipster Ẩn Danh', handle: 'tipsteran', body: 'Trang tipster uy tín số 1' } }));
+    column.appendChild(makeCard({ id: 'D', name: 'Lừa đảo Z', handle: 'luadaoz', body: 'Baccarat online kiếm tiền triệu mỗi ngày',
+      repostedBy: { name: 'Bạn Lan', handle: 'lanbtc' } }));
+    column.appendChild(makeCard({ id: 'E', name: 'Bạn Minh', handle: 'minhnguyen', body: 'Ảnh con mèo nhà mình dễ thương quá',
+      alt: 'Một chú mèo cam đang ngủ' }));
+    // A "For you"/"Following" multi-column layout renders several columns; a
+    // post in a SECOND column body must be filtered exactly like the first.
+    const column2 = document.createElement('div');
+    column2.setAttribute('role', 'region');
+    column2.setAttribute('aria-label', 'Column body');
+    document.body.appendChild(column2);
+    column2.appendChild(makeCard({ id: 'F', name: 'Nhà cái N', handle: 'nhacain', body: 'Vào cược ngay kẻo lỡ, cá độ thể thao' }));
+    // Pressable surfaces that are NOT feed posts: composer + follow suggestion.
+    const composer = document.createElement('div');
+    composer.setAttribute('data-pressable-container', 'true');
+    composer.id = 'COMPOSER';
+    composer.innerHTML = '<div role="button"><span>Empty text field. Type to compose a new post.</span></div>';
+    column.appendChild(composer);
+    const suggest = document.createElement('div');
+    suggest.setAttribute('data-pressable-container', 'true');
+    suggest.id = 'SUGGEST';
+    suggest.innerHTML = '<div><span dir="auto"><span>Suggested for you</span></span></div><div role="button" aria-label="Follow"><svg title="Follow"><title>Follow</title></svg></div>';
+    document.body.appendChild(suggest);
+    // ZenFeed only runs on the home feed routes: pose as threads.com/.
+    // "../src/..." below still resolves to /src/... from "/".
+    history.replaceState(null, '', '/');
+  </script>
+
+  <!-- Real content scripts, manifest order for the Threads entry -->
+  <script src="../src/utils/settings-defaults.js"></script>
+  <script src="../src/utils/i18n.js"></script>
+  <script src="../src/utils/fast-hash.js"></script>
+  <script src="../src/utils/clip-text.js"></script>
+  <script src="../src/utils/zen-data.js"></script>
+  <script src="../src/utils/flashcards-data.js"></script>
+  <script src="../src/content/th-selectors.js"></script>
+  <script src="../src/content/th-text-extractor.js"></script>
+  <script src="../src/content/ui-overlay.js"></script>
+  <script src="../src/content/content.js"></script>
+
+  <script>
+    const results = { passed: 0, failed: 0, done: false, failures: [] };
+    window.__harnessResult = results;
+    const $ = (id) => document.getElementById(id);
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const status = (id) => $(id) ? $(id).dataset.jevStatus : undefined;
+    const isCollapsed = (id) => $(id).classList.contains('jev-post-collapsed');
+    const bannerOf = (id) => $(id).querySelector(':scope > .jev-banner');
+    const allItems = () => calls.flat();
+    const showInReadingZone = (el) => window.scrollTo(0, window.scrollY + el.getBoundingClientRect().top - 20);
+    const scrollAway = () => window.scrollTo(0, 0);
+    async function waitFor(predicate, timeoutMs = 3000, stepMs = 25) {
+      const start = performance.now();
+      while (performance.now() - start < timeoutMs) {
+        if (predicate()) return true;
+        await sleep(stepMs);
+      }
+      return !!predicate();
+    }
+
+    function check(name, cond, detail = '') {
+      const line = document.createElement('div');
+      if (cond) { results.passed++; line.className = 'pass'; line.textContent = `PASS ${name}`; }
+      else { results.failed++; results.failures.push(name); line.className = 'fail'; line.textContent = `FAIL ${name} ${detail}`; }
+      $('log').appendChild(line);
+    }
+
+    async function run() {
+      // Force the adaptive prefetch margin to its widest bucket up front
+      // (same warm-up as the Facebook harness).
+      window.scrollTo(0, 1);
+      await sleep(150);
+      window.scrollTo(0, 6000);
+      await sleep(150);
+      window.scrollTo(0, 0);
+      await sleep(700);
+
+      // --- Extractor unit checks (Threads DOM, no engine) ---
+      check('Không đọc apiKey/apiUrl từ storage', !requestedKeys.has('apiKey') && !requestedKeys.has('apiUrl'), [...requestedKeys].join(','));
+      const data = JevFB.extractPostData($('A'));
+      check('Hợp đồng extractPostData: có text/author/hash/head', !!(data && data.text && data.author && data.hash && data.head), JSON.stringify(data));
+      check('Tác giả gồm tên hiển thị và handle', data && data.author.includes('Nhà cái X') && data.author.includes('nhacaix'), data && data.author);
+      check('Nội dung bài được trích đúng', data && data.text.includes('Kèo cá độ bóng đá đêm nay'), data && data.text);
+      check('Số like/repost KHÔNG được gửi đi', data && !data.text.split('\n').some(l => /^[\d.,\s]*[\dKkMmBb+]\s*$/.test(l.trim())), data && data.text);
+      check('Thời gian "6h" KHÔNG được gửi đi', data && !data.text.includes('6h'), data && data.text);
+
+      const trCard = document.createElement('div');
+      trCard.innerHTML = postHTML({ id: 'TR', name: 'Người Nhật', handle: 'nihonjin', body: 'カジノは危険です', translate: true });
+      const trResult = JevFB.extractPostData(trCard);
+      check('Nút Translate lồng trong nội dung không bị đọc thành text', !!(trResult && trResult.text && trResult.text.includes('カジノは危険です') && !trResult.text.includes('Translate')), trResult && trResult.text);
+
+      const badgeCard = document.createElement('div');
+      badgeCard.innerHTML = postHTML({ id: 'BADGE', name: 'Tài khoản mới', handle: 'newbie', body: 'Nạp tiền nhận thưởng 100%', firstThread: true });
+      const badgeResult = JevFB.extractPostData(badgeCard);
+      check('Badge "First thread" không bị đọc thành nội dung', !!(badgeResult && badgeResult.text.includes('Nạp tiền') && !badgeResult.text.includes('First thread')), badgeResult && badgeResult.text);
+
+      const tagCard = document.createElement('div');
+      tagCard.innerHTML = postHTML({ id: 'TAG', name: 'Bạn Hoa', handle: 'hoanguyen', body: 'Kèo cá độ nóng hổi hôm nay', tag: 'Bóng đá' });
+      const tagResult = JevFB.extractPostData(tagCard);
+      check('Topic tag được đưa vào nội dung lọc', !!(tagResult && tagResult.text.includes('Bóng đá')), tagResult && tagResult.text);
+
+      const eData = JevFB.extractPostData($('E'));
+      check('Alt text ảnh có nghĩa được đưa vào nội dung', !!(eData && eData.text.includes('chú mèo cam')), eData && eData.text);
+      check('Alt ảnh đại diện KHÔNG được gửi đi', eData && !eData.text.includes('profile picture'), eData && eData.text);
+
+      const cData = JevFB.extractPostData($('C'));
+      check('Bài quote: nội dung gốc + bài quote đều được gửi', !!(cData && cData.text.includes('Nhận cá độ tỉ số') && cData.text.includes('Trang tipster uy tín số 1')), cData && cData.text);
+      check('Bài quote: tên tác giả bài quote KHÔNG thành tác giả chính', !!(cData && !cData.author.includes('Tipster Ẩn Danh')), cData && cData.author);
+
+      const shortCard = document.createElement('div');
+      shortCard.innerHTML = postHTML({ id: 'SHORT', name: 'Bạn Quý', handle: 'quydeptrai', body: null, alt: 'game bài đổi thưởng' });
+      const shortData = JevFB.extractPostData(shortCard);
+      check('Bài ngắn có ảnh không bị bỏ qua', !!(shortData && !shortData.notReady && shortData.text.includes('game bài đổi thưởng')), shortData && shortData.text);
+
+      // --- Initial evaluation ---
+      check('Bài vi phạm A bị thu gọn bằng banner', status('A') === 'hidden' && isCollapsed('A') && !!bannerOf('A'), status('A'));
+      check('Bài an toàn B hiển thị bình thường', status('B') === 'safe' && !$('B').classList.contains('jev-analyzing'), status('B'));
+      const fStatus = await waitFor(() => status('F') === 'hidden');
+      check('Bài vi phạm ở cột THỨ HAI cũng bị ẩn', fStatus && status('F') === 'hidden', status('F'));
+      check('Composer KHÔNG bị xử lý như bài feed', !status('COMPOSER') && !composer.querySelector('.jev-ui'), status('COMPOSER'));
+      check('Gợi ý theo dõi KHÔNG bị xử lý', !status('SUGGEST') && !suggest.querySelector('.jev-ui'), status('SUGGEST'));
+
+      const dItem = allItems().find(i => i.text && i.text.includes('Baccarat'));
+      check('Bài repost: tác giả là bài gốc, KHÔNG phải người repost', dItem && dItem.author.includes('Lừa đảo Z') && !dItem.author.includes('Bạn Lan'), dItem && dItem.author);
+      const aItem = allItems().find(i => i.text && i.text.includes('Kèo'));
+      check('Mỗi phần tử có id riêng', aItem && aItem.id, aItem && aItem.id);
+
+      // Quoted post must not be processed as its own feed post
+      check('Bài quote KHÔNG bị xử lý thành bài riêng', !status('CQ') && !$('CQ').hasAttribute('data-jev-status'), status('CQ'));
+
+      // --- Re-check of hidden post: no re-evaluation, reveal preserved ---
+      bannerOf('A').querySelector('.jev-btn-reveal').click();
+      check('Bấm "Xem nội dung" mở bài', $('A').classList.contains('jev-revealed') && !isCollapsed('A'));
+      const callsBefore = calls.length;
+      const bannerNode = bannerOf('A');
+      document.body.appendChild(document.createElement('div'));
+      await sleep(1600);
+      check('Bài đã ẩn KHÔNG bị gửi lại API khi kiểm tra lại', calls.length === callsBefore, `${calls.length - callsBefore} lần gọi thêm`);
+      check('Banner giữ nguyên & trạng thái "đã mở" được giữ', bannerOf('A') === bannerNode && $('A').classList.contains('jev-revealed'));
+
+      // --- hideMode change → blur, control tag not blurred ---
+      chrome.storage.local.set({ hideMode: 'blur', blurPreset: 'classic' });
+      await sleep(300);
+      check('Đổi chế độ hiển thị áp dụng ngay cho bài đã ẩn',
+        $('A').classList.contains('jev-blurred-post') && !!$('A').querySelector(':scope > .jev-blur-tag') && !bannerOf('A'));
+      chrome.storage.local.set({ hideMode: 'banner' });
+      await sleep(300);
+
+      // --- Disable / enable ---
+      chrome.storage.local.set({ extensionEnabled: false });
+      await sleep(200);
+      check('Tắt bộ lọc hiển thị lại mọi bài ngay', !isCollapsed('A') && !bannerOf('A') && !status('A') && !isCollapsed('F'));
+      chrome.storage.local.set({ extensionEnabled: true });
+      await sleep(600);
+      check('Bật lại bộ lọc ẩn lại bài vi phạm', status('A') === 'hidden' && isCollapsed('A'));
+
+      // --- Threads recycles a DOM node with new content ---
+      $('B').innerHTML = postHTML({ id: 'B2', name: 'Nhà cái Z', handle: 'nhacaiz', body: 'Bài mới: cá độ xóc đĩa online uy tín' });
+      await waitFor(() => status('B') === 'hidden', 4000);
+      check('Node bị tái sử dụng với nội dung mới được đánh giá lại', status('B') === 'hidden', status('B'));
+
+      // --- API error → no stuck blur, retried silently later ---
+      backendMode = 'error';
+      const callsBeforeH = calls.length;
+      const unit = makeCard({ id: 'H', name: 'Trang K', handle: 'trangk', body: 'Tham gia cá độ ngay hôm nay' });
+      column.appendChild(unit);
+      await waitFor(() => calls.length > callsBeforeH);
+      await waitFor(() => !$('H').classList.contains('jev-analyzing') && status('H') !== 'analyzing');
+      check('Lỗi API: bài không bị kẹt blur', !$('H').classList.contains('jev-analyzing') && status('H') !== 'analyzing', status('H'));
+      backendMode = 'ok';
+      document.body.appendChild(document.createElement('div'));
+      await sleep(1800);
+      check('Sau khi API hồi phục, bài được thử lại và ẩn', status('H') === 'hidden', status('H'));
+
+      // --- Local cache: identical content decided on insertion, no API round trip ---
+      const callsBeforeDup = calls.length;
+      const dup = makeCard({ id: 'DUP', name: 'Trang K', handle: 'trangk', body: 'Tham gia cá độ ngay hôm nay' });
+      column.appendChild(dup);
+      await sleep(0);
+      check('Cache cục bộ: bài trùng nội dung được ẩn ngay khi chèn, không gọi API',
+        status('DUP') === 'hidden' && calls.length === callsBeforeDup, `${status('DUP')} calls+${calls.length - callsBeforeDup}`);
+
+      // --- Route guard: thread detail / profile pages are left alone ---
+      const callsBeforeRoute = calls.length;
+      history.pushState(null, '', '/@nhacaix/post/ABC123');
+      const thread = makeCard({ id: 'THR', name: 'Nhà cái Q', handle: 'nhacaiq', body: 'Cá độ trong trang chi tiết thread' });
+      document.body.appendChild(thread);
+      await sleep(1800);
+      check('Ngoài trang chủ (/@user/post/...) KHÔNG bị xử lý',
+        !$('THR').hasAttribute('data-jev-status') && calls.length === callsBeforeRoute,
+        `status=${status('THR')}, +${calls.length - callsBeforeRoute} calls`);
+      thread.remove();
+      history.replaceState(null, '', '/');
+
+      // --- SPA navigation back to the home feed: new posts are filtered ---
+      const spa = makeCard({ id: 'SPA1', name: 'Nhà cái S', handle: 'nhacais', body: 'Quay lại trang chủ: cá độ đá gà' });
+      column.appendChild(spa);
+      await waitFor(() => status('SPA1') === 'hidden', 4000);
+      check('SPA quay lại trang chủ: bài mới vẫn được lọc', status('SPA1') === 'hidden', status('SPA1'));
+
+      // --- Post detail modal on the home route is never classified ---
+      const callsBeforeModal = calls.length;
+      const modal = document.createElement('div');
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.innerHTML = `<div data-pressable-container="true" id="MODAL">${postHTML({ id: 'MODALPOST', name: 'Nhà cái M', handle: 'nhacaim', body: 'Cá độ trong modal xem bài' })}</div>`;
+      document.body.appendChild(modal);
+      await sleep(1800);
+      check('Modal xem bài (role="dialog") KHÔNG bị xử lý',
+        !$('MODAL').hasAttribute('data-jev-status') && !modal.querySelector('.jev-ui') &&
+        calls.length === callsBeforeModal, `+${calls.length - callsBeforeModal} calls`);
+      modal.remove();
+
+      // --- Toolbar badge: hidden count reported to the worker ---
+      const tabStatus = messages.filter(m => m.action === 'TAB_STATUS');
+      check('Báo số bài đã ẩn cho badge', tabStatus.length > 0 && tabStatus[tabStatus.length - 1].hidden > 0,
+        JSON.stringify(tabStatus.slice(-1)));
+
+      // --- Platform marker for the stylesheet ---
+      check('Đánh dấu nền tảng Threads trên <html> cho CSS',
+        document.documentElement.classList.contains('jev-platform-threads'));
+
+      // --- Hidden post must stay stable (no blur -> hide -> blur -> hide loop) ---
+      const vl = makeCard({ id: 'VL', name: 'Nhà cái Q', handle: 'nhacaiq', body: 'Dòng một: cá độ bóng đá' });
+      column.appendChild(vl);
+      await waitFor(() => status('VL') === 'hidden', 4000);
+      check('Bài được ẩn ổn định sau khi chèn', status('VL') === 'hidden', status('VL'));
+      const callsLoop = calls.length;
+      const bannerLoop = bannerOf('VL');
+      let flashed = false;
+      const obs = new MutationObserver(() => { if (vl.classList.contains('jev-analyzing') || vl.dataset.jevStatus !== 'hidden') flashed = true; });
+      obs.observe(vl, { attributes: true });
+      await sleep(4500); // > 2 heartbeats
+      check('Bài đã ẩn không nhấp nháy mờ/hiện lại', !flashed && vl.dataset.jevStatus === 'hidden');
+      check('Bài đã ẩn không bị gửi lại API khi quét định kỳ', calls.length === callsLoop, `${calls.length - callsLoop} lần gọi thêm`);
+      check('Banner giữ nguyên node', bannerOf('VL') === bannerLoop);
+      obs.disconnect();
+
+      results.done = true;
+      const line = document.createElement('div');
+      line.textContent = `DONE passed=${results.passed} failed=${results.failed}`;
+      line.style.fontWeight = 'bold';
+      $('log').appendChild(line);
+    }
+
+    run().catch((err) => {
+      const line = document.createElement('div');
+      line.className = 'fail';
+      line.textContent = `HARNESS CRASH: ${err && err.stack || err}`;
+      $('log').appendChild(line);
+      results.done = true;
+    });
+  </script>
+</body>
+</html>

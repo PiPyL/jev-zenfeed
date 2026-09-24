@@ -423,15 +423,38 @@
   let lastScrollY = 0;
   let lastScrollT = 0;
   let scrollSpeedEma = 0;
+  let lastScrollSource = null;
 
-  function onScroll() {
+  /**
+   * Current scroll position of the scrolling surface. Facebook scrolls the
+   * document (scroll events fire with `document` as target); Threads' app
+   * shell scrolls an inner container instead, so the position must be read
+   * off the event target. A source switch (column A -> column B in Threads'
+   * multi-column mode) resets the delta for that sample instead of reading
+   * as a huge jump between unrelated containers.
+   */
+  function scrollSourceOf(e) {
+    const t = e && e.target;
+    if (t && t.nodeType === 1 && t !== document.documentElement && t !== document.body) return t;
+    return window;
+  }
+
+  function positionOf(source) {
+    return source === window ? window.scrollY : (source.scrollTop || 0);
+  }
+
+  function onScroll(e) {
     const now = performance.now();
-    if (lastScrollT === 0) { lastScrollT = now; lastScrollY = window.scrollY; return; }
+    const source = scrollSourceOf(e);
+    const pos = positionOf(source);
+    if (lastScrollT === 0 || source !== lastScrollSource) {
+      lastScrollT = now; lastScrollY = pos; lastScrollSource = source; return;
+    }
     const dt = now - lastScrollT;
     if (dt < 120) return; // sample at a bounded rate, not every scroll event
-    const dy = Math.abs(window.scrollY - lastScrollY);
+    const dy = Math.abs(pos - lastScrollY);
     scrollSpeedEma = scrollSpeedEma * 0.6 + (dy / (dt / 1000)) * 0.4;
-    lastScrollY = window.scrollY;
+    lastScrollY = pos;
     lastScrollT = now;
 
     let bucket = scrollMarginBucket;
@@ -458,8 +481,11 @@
     if (viewportObserver) return;
     viewportObserver = new IntersectionObserver(onViewportEntries, { rootMargin: PREFETCH_MARGINS[0] });
     readingZoneObserver = new IntersectionObserver(onReadingZoneEntries, { rootMargin: READING_ZONE_MARGIN });
-    window.addEventListener('scroll', onScroll, { passive: true });
-    if ('onscrollend' in window) window.addEventListener('scrollend', onScrollEnd);
+    // Capture, not bubble: scroll events don't bubble, and Threads scrolls
+    // inner containers — capture is the only way this window-level listener
+    // sees them. Document-level scrolling (Facebook) still arrives the same way.
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    if ('onscrollend' in window) window.addEventListener('scrollend', onScrollEnd, { capture: true });
   }
 
   /** Any click on the post's own content (Like, Comment, See more, opening
@@ -936,8 +962,10 @@
     tracked.forEach(unregisterPostElement);
     if (viewportObserver) viewportObserver.disconnect();
     if (readingZoneObserver) readingZoneObserver.disconnect();
-    window.removeEventListener('scroll', onScroll);
-    if ('onscrollend' in window) window.removeEventListener('scrollend', onScrollEnd);
+    // Same capture flag as setupViewportObserver: the flag is part of the
+    // listener identity, so removing without it would leave the hook alive.
+    window.removeEventListener('scroll', onScroll, { capture: true });
+    if ('onscrollend' in window) window.removeEventListener('scrollend', onScrollEnd, { capture: true });
     document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('pageshow', onPageShow);
     clearInterval(heartbeatTimer);

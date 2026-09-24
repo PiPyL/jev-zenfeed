@@ -217,7 +217,7 @@ export function buildRequestBody(items, criteria, whitelistCriteria = '') {
 
   items.forEach(item => {
     posts[item.id] = {
-      author: item.author || 'Facebook User',
+      author: item.author || 'Unknown',
       content: clipPostText(item.text)
     };
   });

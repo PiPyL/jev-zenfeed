@@ -88,6 +88,8 @@ function createFakeChrome() {
 const fake = createFakeChrome();
 globalThis.chrome = fake.chrome;
 globalThis.self = globalThis;
+// Content-script modules attach to `window.JevFB`; Node has no window.
+globalThis.window = globalThis;
 
 // 1. manifest.json
 const manifest = JSON.parse(fs.readFileSync(path.resolve('manifest.json'), 'utf8'));
@@ -105,6 +107,37 @@ assert(fs.existsSync(path.resolve('_locales/vi/messages.json')), 'Thiếu _local
 [...contentJs, ...manifest.content_scripts[0].css, manifest.background.service_worker, manifest.action.default_popup,
   ...Object.values(manifest.icons)].forEach(f => assert(fs.existsSync(path.resolve(f)), `Thiếu tệp tin: ${f}`));
 ok('manifest.json hợp lệ (MV3, i18n đa ngôn ngữ chuẩn _locales, quyền tối thiểu, mọi file tham chiếu đều tồn tại).');
+
+// 1b. manifest.json — Threads platform entry: same engine, platform modules
+const thEntry = manifest.content_scripts.find(cs => (cs.matches || []).some(m => m.includes('threads.com')));
+assert(thEntry, 'Phải có content_scripts entry cho threads.com');
+assert(thEntry.matches.some(m => m.includes('threads.net')), 'Entry Threads phải cover cả threads.net (redirect cũ)');
+assert(manifest.host_permissions.some(p => p.includes('threads.com')) && manifest.host_permissions.some(p => p.includes('threads.net')),
+  'host_permissions phải gồm threads.com và threads.net');
+const thJs = thEntry.js;
+assert(thJs.indexOf('src/utils/settings-defaults.js') < thJs.indexOf('src/content/content.js'), 'Threads: settings-defaults.js phải nạp trước content.js');
+assert(thJs.indexOf('src/content/th-selectors.js') < thJs.indexOf('src/content/th-text-extractor.js') &&
+  thJs.indexOf('src/content/th-text-extractor.js') < thJs.indexOf('src/content/ui-overlay.js') &&
+  thJs.indexOf('src/content/ui-overlay.js') < thJs.indexOf('src/content/content.js'),
+  'Threads: thứ tự nạp phải là selectors -> extractor -> overlay -> engine');
+assert(thJs.includes('src/content/th-selectors.js') && thJs.includes('src/content/th-text-extractor.js') &&
+  !thJs.includes('src/content/fb-selectors.js') && !thJs.includes('src/content/text-extractor.js'),
+  'Tab Threads chỉ nạp module selector/extractor của Threads, không nạp module Facebook');
+assert.deepStrictEqual(contentJs.filter(f => f.startsWith('src/content/')),
+  ['src/content/fb-selectors.js', 'src/content/text-extractor.js', 'src/content/ui-overlay.js', 'src/content/content.js'],
+  'Entry Facebook phải giữ nguyên module FB (không phá flow đang chạy)');
+assert.deepStrictEqual(thJs.filter(f => f.startsWith('src/content/')).filter(f => !['src/content/th-selectors.js', 'src/content/th-text-extractor.js', 'src/content/ui-overlay.js', 'src/content/content.js'].includes(f)),
+  [], 'Entry Threads không được nạp module lạ ngoài 4 module content dự kiến');
+[...thJs, ...thEntry.css].forEach(f => assert(fs.existsSync(path.resolve(f)), `Thiếu tệp tin: ${f}`));
+ok('manifest.json có entry Threads (threads.com/threads.net): dùng chung engine + utils, module nền tảng tách biệt, entry FB không đổi.');
+
+// 1c. Threads platform modules implement the engine contract
+await import('../src/content/th-selectors.js');
+await import('../src/content/th-text-extractor.js');
+const thApi = ['isNewsFeedRoute', 'isInFeedRegion', 'getPostsWithin', 'getAllPosts', 'getTopPostContainer',
+  'extractPostData', 'isSamePost'];
+thApi.forEach(fn => assert.strictEqual(typeof globalThis.JevFB[fn], 'function', `Thiếu JevFB.${fn} cho Threads`));
+ok('Module Threads cung cấp đủ contract engine (route, region, posts, extractor, isSamePost).');
 
 // 2. FastHash — single source
 await import('../src/utils/fast-hash.js');

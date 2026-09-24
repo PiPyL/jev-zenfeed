@@ -1,7 +1,7 @@
 {
   "name": "zenfeed",
   "version": "1.0.1",
-  "description": "Active Noise Cancellation for your eyes - AI-powered Facebook feed filter Chrome Extension.",
+  "description": "Active Noise Cancellation for your eyes - AI-powered feed filter for Facebook & Threads (Chrome Extension).",
   "type": "module",
   "scripts": {
     "pretest": "node scripts/build-zip.js",
@@ -24,6 +24,9 @@
     "zenfeed",
     "chrome-extension",
     "facebook",
+    "meta",
+    "threads.net",
+    "threads",
     "ai-filter",
     "jev",
     "typesafe-ai",

@@ -30,7 +30,7 @@
 
 ---
 
-**ZenFeed** is an open-source Chrome Extension that brings **Active Noise Cancellation to your eyes**. Just like noise-canceling headphones filter out background chatter, ZenFeed automatically identifies and collapses visual noise (gambling ads, toxic drama, movie spoilers, predatory loans, pyramid schemes) on your Facebook News Feed in real time using natural language criteria you define.
+**ZenFeed** is an open-source Chrome Extension that brings **Active Noise Cancellation to your eyes**. Just like noise-canceling headphones filter out background chatter, ZenFeed automatically identifies and collapses visual noise (gambling ads, toxic drama, movie spoilers, predatory loans, pyramid schemes) on your **Facebook News Feed** and your **Threads home feeds** in real time using natural language criteria you define.
 
 Powered by the **Jev (TypeSafe AI)** System One architecture, ZenFeed delivers sub-200ms evaluation latency, ultra-low cost ($0.042 / 1M tokens), zero layout shift (Zero-CLS), and 100% BYOK privacy with no intermediate proxy servers.
 
@@ -102,7 +102,7 @@ Then follow steps 3–6 above, selecting the cloned `jev-zenfeed` directory.
    - *Example Criteria:* `"online gambling, casino ads, loan sharks, gossip drama, cryptocurrency scams"`
    - *Optional Whitelist:* `"tech news, AI, software engineering, scientific discoveries"`
 5. Set your confidence threshold (default: **70%**).
-6. Click **Apply** (or press `Ctrl` / `Cmd` + `Enter`). The settings immediately apply to all open Facebook tabs!
+6. Click **Apply** (or press `Ctrl` / `Cmd` + `Enter`). The settings immediately apply to all open Facebook and Threads tabs!
 
 ---
 
@@ -121,7 +121,11 @@ jev-zenfeed/
 │   │   ├── decision-cache.js  # Two-tier cache (session + IndexedDB LRU)
 │   │   └── jev-client.js      # TypeSafe Jev API client (Atomic prompt construction)
 │   ├── content/
-│   │   ├── content.js         # MutationObserver & IntersectionObserver on Facebook
+│   │   ├── content.js         # MutationObserver & IntersectionObserver engine (platform-agnostic)
+│   │   ├── fb-selectors.js    # Resilient Facebook DOM selectors (News Feed post cards)
+│   │   ├── text-extractor.js  # Facebook post body extraction, sanitization, and FNV-1a hash
+│   │   ├── th-selectors.js    # Resilient Threads DOM selectors (home feed post cards)
+│   │   ├── th-text-extractor.js # Threads post body extraction, sanitization, and FNV-1a hash
 │   │   ├── content.css        # Zero-CLS blur overlay and collapsed banner styles
 │   │   ├── fb-selectors.js    # Resilient DOM selectors adapting to FB layout changes
 │   │   ├── text-extractor.js  # Post body extraction, sanitization, and FNV-1a hash
@@ -143,6 +147,7 @@ jev-zenfeed/
 └── test/
     ├── test-jev-mock.js       # Automated Node.js integration tests (30 test suites)
     ├── content-harness.html   # DOM content-script test harness on simulated Facebook feed
+    ├── threads-content-harness.html # DOM content-script test harness on simulated Threads feed
     ├── run-harness-headless.js# Headless Chrome runner for content harness
     ├── mock-jev-server.js     # Standalone local mock server for Jev API
     └── static-server.js       # Local static HTTP server for test harness
@@ -189,7 +194,7 @@ Contributions, issues, and feature requests are very welcome! Please check [CONT
 
 ## ⭐ Star the Project
 
-If ZenFeed helps protect your mental peace while browsing Facebook, please consider giving this repository a **Star ⭐**! It motivates continued development and helps more people find quietude for their eyes.
+If ZenFeed helps protect your mental peace while browsing Facebook or Threads, please consider giving this repository a **Star ⭐**! It motivates continued development and helps more people find quietude for their eyes.
 
 [![Star on GitHub](https://img.shields.io/badge/Star%20on%20GitHub-⭐%20PiPyL%2Fjev--zenfeed-2F5D50?style=for-the-badge)](https://github.com/PiPyL/jev-zenfeed)
 

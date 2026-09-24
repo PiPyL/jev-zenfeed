@@ -17,6 +17,8 @@
   ],
   "host_permissions": [
     "*://*.facebook.com/*",
+    "*://*.threads.com/*",
+    "*://*.threads.net/*",
     "https://api.typesafe.ai/*"
   ],
   "background": {
@@ -47,6 +49,28 @@
         "src/utils/flashcards-data.js",
         "src/content/fb-selectors.js",
         "src/content/text-extractor.js",
+        "src/content/ui-overlay.js",
+        "src/content/content.js"
+      ],
+      "css": [
+        "src/content/content.css"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.threads.com/*",
+        "*://*.threads.net/*"
+      ],
+      "js": [
+        "src/utils/settings-defaults.js",
+        "src/utils/i18n.js",
+        "src/utils/fast-hash.js",
+        "src/utils/clip-text.js",
+        "src/utils/zen-data.js",
+        "src/utils/flashcards-data.js",
+        "src/content/th-selectors.js",
+        "src/content/th-text-extractor.js",
         "src/content/ui-overlay.js",
         "src/content/content.js"
       ],
