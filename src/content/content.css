@@ -32,9 +32,9 @@
   align-items: center !important;
   gap: 12px !important;
   width: 100% !important;
-  min-height: 64px !important;
+  min-height: 48px !important;
   margin: 0 !important;
-  padding: 12px 16px !important;
+  padding: 8px 16px !important;
   background: var(--jev-surface) !important;
   color: var(--jev-text) !important;
   border: 0 !important;
@@ -85,6 +85,7 @@
 }
 
 .jev-banner-desc {
+  display: none !important;
   font-size: 13px !important;
   color: var(--jev-muted) !important;
   white-space: nowrap !important;

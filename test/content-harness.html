@@ -211,6 +211,8 @@
       const midB = midCard('MIDDLE_TWO');
       check('Hai bài khác đoạn giữa không dùng chung hash', !!(midA && midB && midA.hash !== midB.hash && JevFB.clipPostText(midA.text).includes('MIDDLE_ONE')));
       check('Bài vi phạm A bị thu gọn bằng banner', status('A') === 'hidden' && isCollapsed('A') && !!bannerOf('A'));
+      const aDesc = bannerOf('A') && bannerOf('A').querySelector('.jev-banner-desc');
+      check('UI banner Facebook: không chứa text khớp với tiêu chí', (!aDesc || aDesc.textContent === '') && (!aDesc || window.getComputedStyle(aDesc).display === 'none'));
       check('Bài an toàn B hiển thị bình thường', status('B') === 'safe' && !$('B').classList.contains('jev-analyzing'));
       check('Bình luận KHÔNG ảnh hưởng quyết định (C an toàn)', status('C') === 'safe');
       const cItem = allItems().find(i => i.text.includes('con mèo'));
