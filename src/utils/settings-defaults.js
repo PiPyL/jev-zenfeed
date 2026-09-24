@@ -104,8 +104,9 @@
   // ASCII comma/semicolon plus the ideographic list marks used by zh/ja presets.
   const TOPIC_SPLIT = /[\n,;、，；]+/;
   // A leading or inline exception is a keep-topic, not another thing to hide.
-  const EXCEPTION_SPLIT = /\s+(?:trừ|ngoại trừ|ngoại lệ|không ẩn|đừng ẩn|except|unless|but not|other than)\s+/i;
-  const EXCEPTION_PREFIX = /^(?:trừ|ngoại trừ|ngoại lệ|không ẩn|đừng ẩn|except|unless|but not|other than)\s+(.+)$/i;
+  // Supports vi, en, zh, ja, de, fr and optional trailing colons/parentheses.
+  const EXCEPTION_SPLIT = /\s+(?:trừ|ngoại trừ|ngoại lệ|không ẩn|đừng ẩn|except|unless|but not|other than|außer|sauf|除外|除了)\s*[:(]?\s*/i;
+  const EXCEPTION_PREFIX = /^(?:trừ|ngoại trừ|ngoại lệ|không ẩn|đừng ẩn|except|unless|but not|other than|außer|sauf|除外|除了)\s*[:(]?\s*(.+?)\)?$/i;
 
   /**
    * Split criteria into distinct topics (comma / semicolon / newline / ideographic
@@ -151,8 +152,9 @@
     criteriaTopics(criteria).forEach((segment) => {
       segment.split(EXCEPTION_SPLIT).forEach((piece, index) => {
         const prefixed = piece.match(EXCEPTION_PREFIX);
-        if (index === 0 && !prefixed) push(hide, seenHide, piece);
-        else push(except, seenExcept, prefixed ? prefixed[1] : piece);
+        const cleanPiece = piece.replace(/^[:(]\s*|\s*[\):]$/g, '').trim();
+        if (index === 0 && !prefixed) push(hide, seenHide, cleanPiece);
+        else push(except, seenExcept, prefixed ? prefixed[1].replace(/\s*[\):]$/g, '').trim() : cleanPiece);
       });
     });
     return { hide, except };
@@ -198,10 +200,11 @@
     root.JevFB.criteriaTopics = criteriaTopics;
     root.JevFB.filterTopics = filterTopics;
     root.JevFB.exceptionTopics = exceptionTopics;
+    root.JevFB.partitionCriteria = partitionCriteria;
     root.JevFB.criteriaFingerprint = criteriaFingerprint;
     root.JevFB.classicBlurLook = classicBlurLook;
     root.__jevDefaults = {
-      DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, filterTopics, exceptionTopics, criteriaFingerprint,
+      DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, filterTopics, exceptionTopics, partitionCriteria, criteriaFingerprint,
       classicBlurLook
     };
   }

@@ -142,8 +142,8 @@ async function trySystemOnePing(apiKey, apiUrl, lang = 'en') {
  * (61–81% of each request was boilerplate).
  */
 const RUBRIC = Object.freeze({
-  true: 'Main point matches any state.criteria topic, any language.',
-  false: 'Passing mention only, or main point is outside state.criteria.'
+  true: 'Main point or promotion matches state.criteria.',
+  false: 'News report, passing mention, or outside criteria.'
 });
 
 const WHITELIST_RUBRIC = Object.freeze({
@@ -155,11 +155,10 @@ const WHITELIST_RUBRIC = Object.freeze({
 export const WHITELIST_THRESHOLD = 70;
 
 /**
- * A whitelist hit exempts a post only when it is at least as strong as the
- * violation and clears its own bar. The hide slider must not move this bar:
- * raising it used to withdraw exemptions and hide posts the user meant to keep.
+ * A whitelist hit exempts a post once it clears its own threshold bar.
+ * The hide slider must not move this bar.
  * @param {number} whitelistConfidence
- * @param {number} violationConfidence
+ * @param {number} [_violationConfidence]
  */
 export function whitelistExempts(whitelistConfidence, violationConfidence) {
   return Number.isFinite(whitelistConfidence)
@@ -330,14 +329,26 @@ function makeDecision(violation, prob, thresholdPct, reason) {
   return decision;
 }
 
+function extractAnswerProbability(ans, positiveChoice) {
+  if (!ans || typeof ans !== 'object') return null;
+  if (ans.type === 'noul') return toProbability(ans.noul);
+  if (ans.type === 'choice') {
+    const isPositive = ans.choice === positiveChoice || ans.choice === 'yes' || ans.choice === 'true';
+    const prob = toProbability(ans.confidence) ?? (isPositive ? 1 : 0);
+    return isPositive ? prob : (1 - prob);
+  }
+  return null;
+}
+
 /**
  * Standardize Jev output response into unified schema.
  * Items without a usable answer come back with `error: true` so they are
  * retried later instead of being cached as "safe" (F1).
  */
-export function parseJevDecisions(data, originalItems, confidenceRatio, _criteria = '', whitelistCriteria = '') {
+export function parseJevDecisions(data, originalItems, confidenceRatio, criteria = '', whitelistCriteria = '') {
   const thresholdPct = Math.round(confidenceRatio * 100);
-  const requiresWhitelistAnswer = Boolean(whitelistCriteria && whitelistCriteria.trim());
+  const whitelistList = mergeTopics([criteriaTopics(whitelistCriteria), exceptionTopics(criteria)]);
+  const requiresWhitelistAnswer = whitelistList.length > 0;
   const resultMap = new Map();
 
   // Pattern 1: Official TypeSafe AI System One response format
@@ -367,9 +378,9 @@ export function parseJevDecisions(data, originalItems, confidenceRatio, _criteri
       const violateAns = data.answers[`${id}__violate`];
       const wlAns = data.answers[`${id}__whitelist`];
 
-      if (violateAns && violateAns.type === 'noul') {
-        const vProb = toProbability(violateAns.noul);
-        const wlProb = wlAns && wlAns.type === 'noul' ? toProbability(wlAns.noul) : null;
+      if (violateAns) {
+        const vProb = extractAnswerProbability(violateAns, 'violate');
+        const wlProb = wlAns ? extractAnswerProbability(wlAns, 'whitelist') : null;
         if (vProb !== null && wlProb !== null) {
           const confidence = Math.round(vProb * 100);
           const whitelistConfidence = Math.round(wlProb * 100);
