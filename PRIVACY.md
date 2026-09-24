@@ -9,7 +9,7 @@ ZenFeed ("we", "our", or "the extension") is an open-source browser extension de
 ## 1. What Data We Process
 
 ### A. Post Snippets (Website Content)
-- **What is processed:** When you browse supported social media platforms (specifically Facebook™ web feed), the extension extracts short text snippets of visible posts on your feed.
+- **What is processed:** When you browse supported social media platforms (specifically the Facebook™ web feed and the Threads™ home feeds), the extension extracts short text snippets of visible posts on your feed.
 - **Why it is processed:** These snippets are evaluated against your configured filter criteria (e.g., hiding gambling ads, spoilers, or low-quality clickbait) to determine whether the post should be concealed.
 - **How it is transmitted:** Snippets are sent via secure HTTPS to the evaluation endpoint you have configured (by default, the TypeSafe AI Jev decision API at `api.typesafe.ai`, or your custom configured proxy/server).
 - **Data retention:** The backend API evaluates the snippet transiently in memory to return a classification score. ZenFeed does not persistently store your feed content on remote servers, nor do we build user browsing profiles.
@@ -53,7 +53,7 @@ You have complete control over your data:
 
 ## 5. Trademark Disclaimer
 
-Facebook™ is a trademark of Meta Platforms, Inc. ZenFeed is an independent open-source project and is not affiliated with, sponsored by, or endorsed by Meta Platforms, Inc.
+Facebook™ and Threads™ are trademarks of Meta Platforms, Inc. ZenFeed is an independent open-source project and is not affiliated with, sponsored by, or endorsed by Meta Platforms, Inc.
 
 ---
 

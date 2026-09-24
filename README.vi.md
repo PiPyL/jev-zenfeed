@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Tính năng chống ồn chủ động đầu tiên dành cho đôi mắt.</strong><br>
-  <em>Lọc Facebook thông minh bằng AI — Trả lại sự tĩnh lặng cho tâm trí bạn.</em>
+  <em>Lọc Facebook & Threads thông minh bằng AI — Trả lại sự tĩnh lặng cho tâm trí bạn.</em>
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 ---
 
-**ZenFeed** là Chrome Extension mã nguồn mở (Open Source) mang lại tính năng **Chống Ồn Chủ Động Cho Đôi Mắt**. Tương tự như tai nghe chống ồn (ANC) loại bỏ tạp âm của môi trường xung quanh, ZenFeed tự động phát hiện và thu gọn hoặc làm mờ nhẹ nhàng các bài viết "tạp âm thị giác" (cờ bạc, cá độ, tin giật gân, bóc phốt, spoilers, đa cấp, lừa đảo) ngay trên News Feed Facebook theo tiêu chí bạn tự định nghĩa bằng ngôn ngữ tự nhiên.
+**ZenFeed** là Chrome Extension mã nguồn mở (Open Source) mang lại tính năng **Chống Ồn Chủ Động Cho Đôi Mắt**. Tương tự như tai nghe chống ồn (ANC) loại bỏ tạp âm của môi trường xung quanh, ZenFeed tự động phát hiện và thu gọn hoặc làm mờ nhẹ nhàng các bài viết "tạp âm thị giác" (cờ bạc, cá độ, tin giật gân, bóc phốt, spoilers, đa cấp, lừa đảo) ngay trên **News Feed Facebook** và **trang chủ Threads** theo tiêu chí bạn tự định nghĩa bằng ngôn ngữ tự nhiên.
 
 Ứng dụng tích hợp mô hình **Jev (TypeSafe AI)** — kiến trúc "System One" với độ trễ phản hồi sub-200ms, chi phí siêu rẻ ($0.042 / 1 triệu tokens), giao diện mượt mà không giật khung hình (Zero-CLS), bảo mật 100% BYOK và tuyệt đối không qua máy chủ trung gian.
 
@@ -104,7 +104,7 @@ Sau đó làm theo các bước 3–6 ở trên, chọn thư mục dự án `jev
    - *Ví dụ tiêu chí lọc:* `"cờ bạc trực tuyến, cá độ bóng đá, tài xỉu, vay tiền online, bóc phốt showbiz"`
    - *Ngoại lệ Whitelist (nếu muốn giữ lại):* `"tin tức công nghệ, lập trình viên, trí tuệ nhân tạo, tuyển dụng IT"`
 5. Điều chỉnh ngưỡng độ tin cậy mong muốn (mặc định: **70%**).
-6. Bấm **Áp dụng** (hoặc nhấn tổ hợp phím `Ctrl` / `Cmd` + `Enter`). Cài đặt sẽ được áp dụng ngay lập tức trên các tab Facebook đang mở!
+6. Bấm **Áp dụng** (hoặc nhấn tổ hợp phím `Ctrl` / `Cmd` + `Enter`). Cài đặt sẽ được áp dụng ngay lập tức trên các tab Facebook và Threads đang mở!
 
 ---
 
@@ -123,7 +123,9 @@ jev-zenfeed/
 │   │   ├── decision-cache.js  # Bộ nhớ cache 2 tầng (session memory + IndexedDB LRU)
 │   │   └── jev-client.js      # Client giao tiếp TypeSafe Jev (xây dựng prompt nguyên tử)
 │   ├── content/
-│   │   ├── content.js         # Lắng nghe thay đổi DOM & IntersectionObserver trên Facebook
+│   │   ├── content.js         # Engine lắng nghe DOM & IntersectionObserver (đa nền tảng)
+│   │   ├── fb-selectors.js    # Bộ chọn DOM linh hoạt chống đổi class của Facebook
+│   │   ├── th-selectors.js    # Bộ chọn DOM linh hoạt cho Threads (thẻ bài trên trang chủ)
 │   │   ├── content.css        # Hiệu ứng làm mờ Zero-CLS và thanh banner thu gọn
 │   │   ├── fb-selectors.js    # Bộ chọn DOM linh hoạt chống đổi class của Facebook
 │   │   ├── text-extractor.js  # Trích xuất, làm sạch nội dung bài viết và tính hash FNV-1a
@@ -145,6 +147,7 @@ jev-zenfeed/
 └── test/
     ├── test-jev-mock.js       # Bộ 30 bài kiểm thử tích hợp tự động với Node.js
     ├── content-harness.html   # Môi trường kiểm thử content script trên DOM Facebook giả lập
+    ├── threads-content-harness.html # Môi trường kiểm thử content script trên DOM Threads giả lập
     ├── run-harness-headless.js# Trình chạy kiểm thử tự động với Chrome không đầu (headless)
     ├── mock-jev-server.js     # Mock Server cục bộ giả lập API TypeSafe Jev
     └── static-server.js       # Máy chủ HTTP phục vụ kiểm thử DOM

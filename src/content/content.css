@@ -914,3 +914,35 @@
 @media (max-width: 480px) {
   .jev-corner-label .jev-corner-text { display: none !important; }
 }
+
+/* ==================== Threads (threads.com) theme adaptation ====================
+   Threads toggles dark mode with the same `__fb-dark-mode` class Facebook uses
+   on <html>, so the shared dark rules above already apply there. But Threads
+   does not define Facebook's CSS variables the banner reads (--card-background,
+   --primary-text, ...), so in dark mode the banner would fall back to its LIGHT
+   palette and glare on the near-black feed. The platform marker
+   (`jev-platform-threads`, set by th-selectors.js) scopes these overrides to
+   Threads only — Facebook keeps its own palette untouched. */
+html.jev-platform-threads.__fb-dark-mode .jev-banner,
+html.jev-platform-threads.__fb-dark-mode .jev-corner-label {
+  --jev-surface: #101010;
+  --jev-text: #f5f5f5;
+  --jev-muted: #a8a8a8;
+  --jev-divider: #262626;
+  --jev-btn-bg: #1c1c1e;
+  --jev-btn-text: #f5f5f5;
+  --jev-hover: rgba(255, 255, 255, 0.1);
+}
+
+html.jev-platform-threads.__fb-dark-mode .jev-blur-canvas {
+  background: rgba(16, 16, 16, 0.55) !important;
+}
+
+html.jev-platform-threads.__fb-dark-mode .jev-blurred-post.jev-blur-classic > *:not(.jev-ui) {
+  filter: blur(var(--jev-classic-blur, 18px)) saturate(0.45) brightness(0.62) !important;
+}
+
+html.jev-platform-threads.__fb-dark-mode .jev-floating-card {
+  background: rgba(28, 28, 30, 0.94) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}

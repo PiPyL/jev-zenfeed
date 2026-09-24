@@ -208,20 +208,31 @@ function warnThrottled(key, entry, intervalMs = 60000) {
 
 // ==================== INJECT INTO OPEN TABS ====================
 // Chrome only runs manifest content scripts on page loads that happen AFTER the
-// extension is installed/reloaded. Inject into Facebook tabs already open so
-// filtering starts without the user having to refresh.
+// extension is installed/reloaded. Inject into tabs already open (Facebook,
+// Threads, ...) so filtering starts without the user having to refresh.
+
+/** Every supported URL pattern across all content_scripts entries. */
+function allContentScriptMatches() {
+  return [...new Set((chrome.runtime.getManifest().content_scripts || [])
+    .flatMap(cs => cs.matches || []))];
+}
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const cs = chrome.runtime.getManifest().content_scripts?.[0];
-  if (!cs) return;
-  const tabs = await chrome.tabs.query({ url: cs.matches });
-  for (const tab of tabs) {
-    const target = { tabId: tab.id };
-    try {
-      if (cs.css?.length) await chrome.scripting.insertCSS({ target, files: cs.css });
-      await chrome.scripting.executeScript({ target, files: cs.js });
-    } catch (err) {
-      console.warn('[Jev] Could not inject into tab', tab.id, err && err.message);
+  // Query per entry and let Chrome apply its own match patterns — the
+  // per-platform match sets are disjoint, so each tab gets exactly its
+  // platform's selector/extractor pair injected.
+  const entries = chrome.runtime.getManifest().content_scripts || [];
+  for (const cs of entries) {
+    if (!cs.matches?.length) continue;
+    const tabs = await chrome.tabs.query({ url: cs.matches });
+    for (const tab of tabs) {
+      const target = { tabId: tab.id };
+      try {
+        if (cs.css?.length) await chrome.scripting.insertCSS({ target, files: cs.css });
+        await chrome.scripting.executeScript({ target, files: cs.js });
+      } catch (err) {
+        console.warn('[Jev] Could not inject into tab', tab.id, err && err.message);
+      }
     }
   }
 });
@@ -278,7 +289,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       inflight.clear();
       decisionCache.clear().then(() => {
         // Tabs keep a local copy of hot decisions — drop those too
-        chrome.tabs.query({ url: chrome.runtime.getManifest().content_scripts[0].matches }).then((tabs) => {
+        chrome.tabs.query({ url: allContentScriptMatches() }).then((tabs) => {
           tabs.forEach(tab => chrome.tabs.sendMessage(tab.id, { action: 'CACHE_CLEARED' }).catch(() => {}));
         }).catch(() => {});
         addLog({ level: 'info', tag: 'CACHE', key: 'logCacheCleared' });
@@ -332,7 +343,7 @@ async function markSafe(message, sender) {
   if (!/^[0-9a-f]{1,16}$/.test(hash)) return { success: false };
   await settingsReady;
   decisionCache.set(`${hash}_${criteriaKeyHash()}`, { violation: false, confidence: 0, user: true });
-  const author = typeof message.author === 'string' ? message.author.slice(0, 80) : 'Facebook User';
+  const author = typeof message.author === 'string' ? message.author.slice(0, 80) : 'Unknown';
   addLog({ level: 'info', tag: 'FEEDBACK', key: 'logFeedback', params: { author } });
   if (sender.tab) recordStats(0, -1, 0);
   return { success: true };
@@ -392,7 +403,7 @@ function queueApiRequest(run, expire) {
 const API_COOLDOWN_MS = 10000;
 let apiCooldownUntil = 0;
 
-const author = (item) => item.author || 'Facebook User';
+const author = (item) => item.author || 'Unknown';
 
 /**
  * Process a batch of post candidates from Content Script.
