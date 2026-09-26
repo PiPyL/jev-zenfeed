@@ -43,19 +43,25 @@
     const messages = [];              // every other runtime message
     let backendMode = 'ok';           // 'ok' | 'error'
     let backendDelayMs = 60;          // bumped for the strict-mode "pending" test below
+    let heldBatches = null;           // Promise that pauses every in-flight batch
 
     function backend(items) {
       calls.push(items);
       const crit = String(store.filterCriteria || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
-      return new Promise((resolve, reject) => setTimeout(() => {
-        // Real Chrome rejects in-flight messages when the extension context dies.
-        if (!chrome.runtime.id) { reject(new Error('Extension context invalidated.')); return; }
-        resolve(items.map(i => {
-          if (backendMode === 'error') return { id: i.id, shouldHide: false, confidence: 0, error: true };
-          const hit = crit.some(c => i.text.toLowerCase().includes(c));
-          return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3, violation: hit };
-        }));
-      }, backendDelayMs));
+      const gate = heldBatches;
+      return new Promise((resolve, reject) => {
+        const deliver = () => setTimeout(() => {
+          // Real Chrome rejects in-flight messages when the extension context dies.
+          if (!chrome.runtime.id) { reject(new Error('Extension context invalidated.')); return; }
+          resolve(items.map(i => {
+            if (backendMode === 'error') return { id: i.id, shouldHide: false, confidence: 0, error: true };
+            const hit = crit.some(c => i.text.toLowerCase().includes(c));
+            return { id: i.id, shouldHide: hit && 90 >= store.confidenceThreshold, confidence: hit ? 90 : 3, violation: hit };
+          }));
+        }, backendDelayMs);
+        if (gate) gate.then(deliver);
+        else deliver();
+      });
     }
 
     window.chrome = {
@@ -587,6 +593,24 @@
 
       // --- Regression: extension reloaded while a batch is still pending ---
       // The orphaned content script must shut down silently: no API call, no
+      // A batch that left before the endpoint changed must not be stored as
+      // the new model's answer. The engine re-asks instead.
+      let releaseHold;
+      heldBatches = new Promise((resolve) => { releaseHold = resolve; });
+      const stale = document.createElement('div');
+      stale.id = 'STALE_MODEL';
+      stale.innerHTML = postHTML({ author: 'Đổi provider', body: 'Kèo cá độ sau khi đổi model' });
+      document.querySelector('[role="feed"]').appendChild(stale);
+      const staleQueued = await waitFor(() => calls.some((batch) => batch.some((item) => String(item.text || '').includes('sau khi đổi model'))));
+      check('Đổi provider: batch cũ đã được gửi', staleQueued);
+      const callsAtSwitch = calls.length;
+      await chrome.storage.local.set({ apiUrl: 'https://openrouter.ai/api/v1' });
+      await sleep(30);
+      releaseHold();
+      heldBatches = null;
+      const reasked = await waitFor(() => calls.length > callsAtSwitch);
+      check('Đổi provider: verdict đang bay bị bỏ, engine hỏi lại', reasked, `calls ${callsAtSwitch} -> ${calls.length}`);
+
       // "Extension context invalidated" warn, no further scanning. MUST run
       // last — it kills the engine (shutdown() is one-way).
       const warns = [];

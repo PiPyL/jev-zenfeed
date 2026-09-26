@@ -1,10 +1,12 @@
 /**
  * Jev API Client - TypeSafe AI "System One" Integration
  * Official specification for Jev (TypeSafe AI) model.
- * Endpoint: POST /v1/systemone & GET /v1/models
+ * Endpoint: POST /v1/systemone (TypeSafe, custom) or /api/alpha/decisions
+ * (OpenRouter) & GET /v1/models
  */
 
 import '../utils/settings-defaults.js'; // side-effect import registers self.__jevDefaults
+import '../utils/providers.js'; // side-effect import registers self.__jevProviders
 import '../utils/i18n.js'; // side-effect import registers self.__jevI18n
 import '../utils/clip-text.js'; // side-effect import registers self.__jevClipText
 
@@ -46,6 +48,10 @@ export async function testApiKey(apiKey, apiUrl = 'https://api.typesafe.ai', lan
   }
 
   const cleanKey = apiKey.trim();
+  const provider = self.__jevProviders.resolveProvider(apiUrl);
+  if (provider.probe === 'systemone') {
+    return trySystemOnePing(cleanKey, apiUrl, lang, provider.model);
+  }
   const modelsEndpoint = getEndpoint(apiUrl, 'models');
 
   try {
@@ -68,13 +74,12 @@ export async function testApiKey(apiKey, apiUrl = 'https://api.typesafe.ai', lan
       return { success: true };
     }
 
-    if (res.status === 401 || res.status === 403) {
-      return { success: false, error: t(lang, 'errInvalidOrUnapproved') };
-    }
+    const denied = authFailure(res.status, lang);
+    if (denied) return denied;
 
     if (res.status === 404) {
       // Fallback probe: if proxy does not expose /v1/models, probe /v1/systemone
-      return await trySystemOnePing(cleanKey, apiUrl, lang);
+      return await trySystemOnePing(cleanKey, apiUrl, lang, provider.model);
     }
 
     const errText = await res.text();
@@ -93,9 +98,26 @@ export async function testApiKey(apiKey, apiUrl = 'https://api.typesafe.ai', lan
 /**
  * Fallback probe using minimal /v1/systemone request
  */
-async function trySystemOnePing(apiKey, apiUrl, lang = 'en') {
+function authFailure(status, lang) {
+  if (status === 401 || status === 403) {
+    return { success: false, error: t(lang, 'errInvalidOrUnapproved') };
+  }
+  if (status === 402) {
+    return { success: false, error: t(lang, 'errInsufficientCredit') };
+  }
+  return null;
+}
+
+/** The decision POST target. OpenRouter hosts Jev under /api/alpha/decisions
+ * (no /v1/systemone route); every other endpoint appends /systemone to its base. */
+function decisionsEndpoint(apiUrl) {
+  const override = self.__jevProviders.resolveProvider(apiUrl).decisionsUrl;
+  return override || getEndpoint(apiUrl, 'systemone');
+}
+
+async function trySystemOnePing(apiKey, apiUrl, lang = 'en', model = 'jev-latest') {
   try {
-    const endpoint = getEndpoint(apiUrl, 'systemone');
+    const endpoint = decisionsEndpoint(apiUrl);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
@@ -106,7 +128,7 @@ async function trySystemOnePing(apiKey, apiUrl, lang = 'en') {
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'jev-latest',
+        model,
         state: 'ping',
         questions: {
           ping: {
@@ -123,9 +145,8 @@ async function trySystemOnePing(apiKey, apiUrl, lang = 'en') {
     if (res.status === 200 || res.status === 201) {
       return { success: true };
     }
-    if (res.status === 401 || res.status === 403) {
-      return { success: false, error: t(lang, 'errSystemOneInvalid') };
-    }
+    const denied = authFailure(res.status, lang);
+    if (denied) return denied;
     return { success: false, error: t(lang, 'errSystemOneStatus', { status: res.status }) };
   } catch (err) {
     if (err.name === 'AbortError') {
@@ -210,7 +231,7 @@ function mergeTopics(lists) {
   return topics;
 }
 
-export function buildRequestBody(items, criteria, whitelistCriteria = '') {
+export function buildRequestBody(items, criteria, whitelistCriteria = '', model = 'jev-latest') {
   const hideList = filterTopics(criteria);
   const whitelistList = mergeTopics([criteriaTopics(whitelistCriteria), exceptionTopics(criteria)]);
   const hasWhitelist = whitelistList.length > 0;
@@ -237,7 +258,7 @@ export function buildRequestBody(items, criteria, whitelistCriteria = '') {
     });
 
     return {
-      model: 'jev-latest',
+      model,
       state: { criteria: hideList.join('; '), posts },
       questions
     };
@@ -254,7 +275,7 @@ export function buildRequestBody(items, criteria, whitelistCriteria = '') {
   });
 
   return {
-    model: 'jev-latest',
+    model,
     state: {
       criteria: hideList.join('; '),
       whitelist: whitelistList.join('; '),
@@ -262,6 +283,10 @@ export function buildRequestBody(items, criteria, whitelistCriteria = '') {
     },
     questions
   };
+}
+
+export function createDecisionBody(apiUrl, items, criteria, whitelistCriteria = '') {
+  return buildRequestBody(items, criteria, whitelistCriteria, self.__jevProviders.resolveProvider(apiUrl).model);
 }
 
 const REQUEST_TIMEOUT_MS = 8000;
@@ -295,7 +320,7 @@ export async function evaluateWithJev(apiKey, apiUrl, items, criteria, threshold
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey.trim()}`
       },
-      body: JSON.stringify(buildRequestBody(items, criteria, whitelistCriteria)),
+      body: JSON.stringify(createDecisionBody(apiUrl, items, criteria, whitelistCriteria)),
       signal: controller.signal
     });
 

@@ -10,11 +10,23 @@ import * as decisionCache from './decision-cache.js';
 import { addLog, getLogs, clearLogs } from '../utils/logger.js';
 import '../utils/fast-hash.js'; // F12: side-effect import registers self.__jevFastHash
 import '../utils/settings-defaults.js'; // F14: side-effect import registers self.__jevDefaults
+import '../utils/providers.js'; // side-effect import registers self.__jevProviders
 import '../utils/i18n.js'; // F18: side-effect import registers self.__jevI18n
 
 const simpleHash = self.__jevFastHash;
-const { DEFAULT_SETTINGS, filterTopics, criteriaFingerprint } = self.__jevDefaults;
+const { DEFAULT_SETTINGS, filterTopics, criteriaFingerprint, resolvePlatformSettings } = self.__jevDefaults;
+const { legacyEndpointMigration, decisionCacheSuffix } = self.__jevProviders;
 const { t: i18nT } = self.__jevI18n;
+
+// Which policy a content-script message obeys. Both platforms share this
+// worker; the sender's tab URL picks the scope ("Chung · Facebook · Threads").
+// Same content + same criteria still share one cache entry — the suffix only
+// diverges because the criteria themselves do.
+const THREADS_URL_RE = /^https?:\/\/([^/]+\.)?threads\.(com|net)\//i;
+function platformOfSender(sender) {
+  const url = sender && sender.tab && sender.tab.url ? String(sender.tab.url) : '';
+  return THREADS_URL_RE.test(url) ? 'threads' : 'facebook';
+}
 
 // One-time cleanup: the cache and logs used to live in storage.local, where
 // every write was broadcast to all Facebook tabs.
@@ -24,8 +36,10 @@ chrome.storage.local.remove(['cachedDecisions', 'jevLogs']).catch(() => {});
 // Read once, then kept fresh via storage.onChanged — no storage I/O per batch.
 
 let settings = { ...DEFAULT_SETTINGS };
-const settingsReady = chrome.storage.local.get(DEFAULT_SETTINGS).then((s) => {
-  settings = s;
+const settingsReady = chrome.storage.local.get(['apiKey', 'apiUrl']).then(async (raw) => {
+  const migrateTo = legacyEndpointMigration(raw);
+  if (migrateTo) await chrome.storage.local.set({ apiUrl: migrateTo });
+  settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
   updateHealth();
 });
 
@@ -262,7 +276,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'EVALUATE_BATCH':
-      handleBatchEvaluation(message.items, makePartialSender(sender)).then(sendResponse, (err) => {
+      handleBatchEvaluation(message.items, makePartialSender(sender), platformOfSender(sender)).then(sendResponse, (err) => {
         console.error('[Jev] handleBatchEvaluation failed:', err);
         sendResponse((message.items || []).map(it => ({ id: it.id, shouldHide: false, confidence: 0, error: true })));
       });
@@ -307,8 +321,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'GET_HOT_DECISIONS':
       settingsReady.then(async () => {
-        const criteriaHash = criteriaKeyHash();
-        const entries = await decisionCache.recent(`_${criteriaHash}`, 500);
+        const config = resolvePlatformSettings(settings, platformOfSender(sender));
+        const criteriaHash = criteriaKeyHash(config);
+        const entries = await decisionCache.recent(decisionSuffix(config), 500);
         sendResponse({ criteriaHash, entries });
       }).catch(() => sendResponse({ criteriaHash: '', entries: [] }));
       return true;
@@ -332,6 +347,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ==================== USER FEEDBACK ====================
 
 const criteriaKeyHash = (config = settings) => simpleHash(criteriaFingerprint(config.filterCriteria, config.whitelistCriteria));
+const decisionSuffix = (config = settings) => decisionCacheSuffix(criteriaKeyHash(config), config.apiUrl);
 
 /**
  * "Ẩn nhầm": the user says this content must not be hidden under the current
@@ -342,7 +358,10 @@ async function markSafe(message, sender) {
   const hash = typeof message.hash === 'string' ? message.hash : '';
   if (!/^[0-9a-f]{1,16}$/.test(hash)) return { success: false };
   await settingsReady;
-  decisionCache.set(`${hash}_${criteriaKeyHash()}`, { violation: false, confidence: 0, user: true });
+  // The override lands under the SENDING platform's criteria hash, so a
+  // "not spam" click on a customized Threads never spares the post on Facebook.
+  const config = resolvePlatformSettings(settings, platformOfSender(sender));
+  decisionCache.set(`${hash}${decisionSuffix(config)}`, { violation: false, confidence: 0, user: true });
   const author = typeof message.author === 'string' ? message.author.slice(0, 80) : 'Unknown';
   addLog({ level: 'info', tag: 'FEEDBACK', key: 'logFeedback', params: { author } });
   if (sender.tab) recordStats(0, -1, 0);
@@ -413,11 +432,13 @@ const author = (item) => item.author || 'Unknown';
  * Result flags: `error` = transient failure (retry later, never cached);
  * `skipped` = filter not configured/disabled (re-check once configured).
  * @param {Array<{id: string, hash: string, text: string, author?: string}>} items
+ * @param {((decisions: object[]) => void)|null} onPartial
+ * @param {string} [platform='facebook'] sender's platform — picks Chung or its own profile
  */
-async function handleBatchEvaluation(items, onPartial = null) {
+async function handleBatchEvaluation(items, onPartial = null, platform = 'facebook') {
   if (!Array.isArray(items) || items.length === 0) return [];
   await settingsReady;
-  const config = { ...settings };
+  const config = { ...resolvePlatformSettings(settings, platform) };
 
   const skippedAll = () => items.map(it => ({ id: it.id, shouldHide: false, confidence: 0, skipped: true }));
 
@@ -442,11 +463,11 @@ async function handleBatchEvaluation(items, onPartial = null) {
   }
 
   const threshold = config.confidenceThreshold;
-  const criteriaHash = criteriaKeyHash(config);
   // Fence the whole operation from the start. If the cache is cleared while
   // getMany is waiting on IndexedDB, this batch must not repopulate it.
   const generationAtStart = decisionCache.getGeneration();
-  const keyOf = (item) => `${item.hash}_${criteriaHash}`;
+  const suffix = decisionSuffix(config);
+  const keyOf = (item) => `${item.hash}${suffix}`;
 
   /** @type {Map<string, Promise<object>>} cacheKey -> promise of RAW decision */
   const pendingByKey = new Map();

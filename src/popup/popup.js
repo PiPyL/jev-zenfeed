@@ -6,11 +6,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleKeyVisibility = document.getElementById('toggleKeyVisibility');
   const btnTestKey = document.getElementById('btnTestKey');
   const apiStatusBadge = document.getElementById('apiStatusBadge');
-  const apiKeyWarning = document.getElementById('apiKeyWarning');
-  const btnQuickMock = document.getElementById('btnQuickMock');
   const btnToggleAdvanced = document.getElementById('btnToggleAdvanced');
   const advancedSettings = document.getElementById('advancedSettings');
   const apiUrlInput = document.getElementById('apiUrl');
+  const providerChips = document.getElementById('providerChips');
+  const providerHint = document.getElementById('providerHint');
+  const keyShapeHint = document.getElementById('keyShapeHint');
+  const linkGetApiKey = document.getElementById('linkGetApiKey');
   const filterCriteriaInput = document.getElementById('filterCriteria');
   const whitelistCriteriaInput = document.getElementById('whitelistCriteria');
   const criteriaStatus = document.getElementById('criteriaStatus');
@@ -45,6 +47,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const languageSelect = document.getElementById('languageSelect');
   const tabButtons = document.querySelectorAll('.tab-btn');
   const tabPanels = { activity: document.getElementById('panelActivity'), settings: document.getElementById('panelSettings') };
+  // Scope bar ("Chung · Facebook · Threads"): what the single form edits
+  const scopeSegs = document.querySelectorAll('.scope-seg');
+  const scopeSegments = document.getElementById('scopeSegments');
+  const scopeStatusRow = document.getElementById('scopeStatusRow');
+  const scopeStatusText = document.getElementById('scopeStatusText');
+  const btnCustomizeScope = document.getElementById('btnCustomizeScope');
+  const btnRevertScope = document.getElementById('btnRevertScope');
 
   // Logs Elements
   const logCountBadge = document.getElementById('logCountBadge');
@@ -57,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let cachedLogs = [];
 
   // F14: single source of defaults (src/utils/settings-defaults.js)
-  const { DEFAULT_SETTINGS, criteriaFingerprint } = window.JevFB;
+  const { DEFAULT_SETTINGS, criteriaFingerprint, PROFILE_SETTING_KEYS, getPlatformProfile, resolvePlatformSettings } = window.JevFB;
   // F18: single source of translated strings (src/utils/i18n.js)
   const { SUPPORTED_LANGUAGES, t: translate, normalizeLanguage } = window.JevFB;
   const defaults = {
@@ -67,6 +76,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let currentLang = DEFAULT_SETTINGS.language;
   const t = (key, params) => translate(currentLang, key, params);
+
+  // ==================== SCOPE (Chung · Facebook · Threads) ====================
+  // 'shared' edits the top-level storage keys (the policy every platform still
+  // follows); 'facebook'/'threads' edit that platform's own copy in
+  // platformProfiles — created on demand by "Customize this platform".
+  // The API key, endpoint and language sit OUTSIDE the scope and stay global.
+
+  let scope = 'shared';
+  let raw = null; // mirror of chrome.storage.local (defaults pre-applied)
+
+  const platformLabel = (s) => t(s === 'threads' ? 'scopePlatformThreads' : 'scopePlatformFacebook');
+
+  function hasProfile(s) {
+    if (s === 'shared' || !raw) return false;
+    return !!getPlatformProfile(raw, s);
+  }
+
+  /** Values the form shows for a scope: the profile's policy over the shared base. */
+  function valuesForScope(s) {
+    if (s === 'shared' || !raw) return raw || defaults;
+    return resolvePlatformSettings(raw, s);
+  }
+
+  // A platform still following Chung: the policy cards show the shared values
+  // read-only and the header switch is locked, so nothing writes to Chung by accident.
+  const isScopeLocked = () => scope !== 'shared' && !hasProfile(scope);
 
   // ==================== i18n ====================
 
@@ -106,11 +141,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function applyI18n() {
     document.documentElement.lang = currentLang;
+    renderProviderChrome();
     document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
     document.querySelectorAll('[data-i18n-html]').forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
     document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
     document.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
-    toggleFilterLabel.title = t('toggleFilterTitle');
+    renderHeaderSwitch();
+    if (scopeSegments) scopeSegments.setAttribute('aria-label', t('scopeBarLabel'));
+    scopeStatusText.textContent = scopeStatusKey ? t(scopeStatusKey) : '';
     btnClearCacheTitleRefresh();
     btnCopyLogs.title = t('btnCopyLogsTitle');
     btnCopyLogs.setAttribute('aria-label', t('btnCopyLogsTitle'));
@@ -180,11 +218,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!tabPanels[initialTab]) initialTab = 'activity';
   setActiveTab(initialTab);
 
-  // Unsaved criteria survive closing the popup (per-browser convenience only)
-  const DRAFT_KEY = 'jevCriteriaDraft';
-  const readDraft = () => { try { return localStorage.getItem(DRAFT_KEY); } catch (_) { return null; } };
+  // Unsaved criteria survive closing the popup (per-browser convenience only).
+  // One draft per scope: typing on Chung must not leak into Threads and vice
+  // versa. The legacy unsuffixed key stays the shared scope's draft.
+  const DRAFT_BASE = 'jevCriteriaDraft';
+  const draftKey = (s) => (s === 'shared' ? DRAFT_BASE : `${DRAFT_BASE}.${s}`);
+  const readDraft = () => { try { return localStorage.getItem(draftKey(scope)); } catch (_) { return null; } };
   const writeDraft = (v) => {
-    try { v == null ? localStorage.removeItem(DRAFT_KEY) : localStorage.setItem(DRAFT_KEY, v); } catch (_) {}
+    try { v == null ? localStorage.removeItem(draftKey(scope)) : localStorage.setItem(draftKey(scope), v); } catch (_) {}
   };
 
   let classicTint = '';
@@ -193,40 +234,59 @@ document.addEventListener('DOMContentLoaded', async () => {
   let savedWhitelist = DEFAULT_SETTINGS.whitelistCriteria || '';
   let savedApiKey = '';
   let savedApiUrl = DEFAULT_SETTINGS.apiUrl;
+  // A chip click can land before the storage read returns. That late read
+  // must not put the previous URL back into the field.
+  let endpointTouched = false;
 
-  chrome.storage.local.get(defaults, (data) => {
+  renderProviderChoices();
+
+  let keyMap = { openrouter: '', typesafe: '', custom: '' };
+  const { keySlot, normalizeKeyMap } = self.__jevProviders;
+  const slotFor = (url) => keySlot(url || DEFAULT_SETTINGS.apiUrl);
+  function rememberFieldKey(url) {
+    keyMap[slotFor(url)] = apiKeyInput.value.trim();
+  }
+  function showKeyFor(url) {
+    apiKeyInput.value = keyMap[slotFor(url)] || '';
+  }
+  function keyPayload(url) {
+    rememberFieldKey(url);
+    return {
+      apiUrl: url,
+      apiKey: keyMap[slotFor(url)] || '',
+      apiKeysByProvider: { ...keyMap }
+    };
+  }
+
+  chrome.storage.local.get(['apiKey', 'apiUrl', 'apiKeysByProvider']).then(async (stored) => {
+    const migrateTo = window.JevFB.legacyEndpointMigration(stored);
+    if (migrateTo) await chrome.storage.local.set({ apiUrl: migrateTo });
+    const data = await chrome.storage.local.get(defaults);
+    if (migrateTo) data.apiUrl = migrateTo;
+    const urlForKeys = migrateTo || stored.apiUrl || DEFAULT_SETTINGS.apiUrl;
+    keyMap = normalizeKeyMap(stored.apiKeysByProvider, stored.apiKey, urlForKeys);
     currentLang = normalizeLanguage(data.language);
     languageSelect.value = currentLang;
 
-    extensionEnabled.checked = data.extensionEnabled;
-    apiKeyInput.value = data.apiKey || '';
-    apiUrlInput.value = data.apiUrl || DEFAULT_SETTINGS.apiUrl;
-    confidenceSlider.value = data.confidenceThreshold;
-    thresholdDisplay.textContent = `${confidenceSlider.value}%`;
-    hideModeSelect.value = data.hideMode;
-    if (filterModeSelect) filterModeSelect.value = data.filterMode;
-    if (blurPresetSelect) blurPresetSelect.value = data.blurPreset || DEFAULT_SETTINGS.blurPreset || 'classic';
-    renderClassicLook(data.blurClassicStrength, data.blurClassicTint);
-    if (blurFlashcardTopicSelect) blurFlashcardTopicSelect.value = data.blurFlashcardTopic || DEFAULT_SETTINGS.blurFlashcardTopic || 'ielts';
-    if (blurRevealFrictionSelect) blurRevealFrictionSelect.value = data.blurRevealFriction || DEFAULT_SETTINGS.blurRevealFriction || 'instant';
-    if (blurCustomQuotesInput) blurCustomQuotesInput.value = data.blurCustomQuotes || '';
-    updateBlurCustomizationVisibility();
+    // One mirror of storage; the scope UI derives everything from it.
+    raw = { ...data };
+    if (!raw.platformProfiles || typeof raw.platformProfiles !== 'object') raw.platformProfiles = {};
 
-    savedCriteria = data.filterCriteria;
-    savedWhitelist = data.whitelistCriteria || '';
+    // Global fields — the same for every scope (key/endpoint/language are
+    // deliberately NOT part of a platform profile).
+    if (!endpointTouched) {
+      apiUrlInput.value = raw.apiUrl || DEFAULT_SETTINGS.apiUrl;
+      apiKeyInput.value = keyMap[slotFor(apiUrlInput.value)] || '';
+    }
     savedApiKey = apiKeyInput.value.trim();
-    savedApiUrl = apiUrlInput.value.trim();
-    const draft = readDraft();
-    filterCriteriaInput.value = draft != null ? draft : data.filterCriteria;
-    if (whitelistCriteriaInput) whitelistCriteriaInput.value = data.whitelistCriteria || '';
+    if (!endpointTouched) savedApiUrl = apiUrlInput.value.trim();
 
+    renderScopeUI();
     applyI18n();
-    updateCriteriaState();
-    updateKeyWarningState();
-    updateStatsDisplay(data.stats);
+    updateStatsDisplay(raw.stats);
     mergeSessionStats();
 
-    if (data.apiKey) {
+    if (apiKeyInput.value.trim()) {
       setApiBadge('badgeSaved', 'badge badge-success');
     } else {
       setApiBadge('badgeNotEntered', 'badge badge-error');
@@ -259,9 +319,155 @@ document.addEventListener('DOMContentLoaded', async () => {
     );
   }
 
-  function updateKeyWarningState() {
-    apiKeyWarning.classList.toggle('hidden', !!apiKeyInput.value.trim());
+  // ---- Scope rendering & saving ----
+
+  let scopeStatusKey = '';
+
+  /** Header switch: shows the selected scope's on/off and says what it affects. */
+  function renderHeaderSwitch() {
+    extensionEnabled.checked = !!valuesForScope(scope).extensionEnabled;
+    const locked = isScopeLocked();
+    extensionEnabled.disabled = locked;
+    toggleFilterLabel.classList.toggle('locked', locked);
+    toggleFilterLabel.title = locked
+      ? t('scopeSwitchLockedTitle', { platform: platformLabel(scope) })
+      : scope === 'shared'
+        ? t('scopeSwitchTitleShared')
+        : t('scopeSwitchTitlePlatform', { platform: platformLabel(scope) });
   }
+
+  /** Fill the policy controls from a scope's effective values. */
+  function populatePolicyFields(v) {
+    const draft = isScopeLocked() ? null : readDraft();
+    filterCriteriaInput.value = draft != null ? draft : v.filterCriteria;
+    whitelistCriteriaInput.value = v.whitelistCriteria || '';
+    confidenceSlider.value = v.confidenceThreshold;
+    thresholdDisplay.textContent = `${confidenceSlider.value}%`;
+    hideModeSelect.value = v.hideMode;
+    if (filterModeSelect) filterModeSelect.value = v.filterMode;
+    if (blurPresetSelect) blurPresetSelect.value = v.blurPreset || DEFAULT_SETTINGS.blurPreset || 'classic';
+    renderClassicLook(v.blurClassicStrength, v.blurClassicTint);
+    if (blurFlashcardTopicSelect) blurFlashcardTopicSelect.value = v.blurFlashcardTopic || DEFAULT_SETTINGS.blurFlashcardTopic || 'ielts';
+    if (blurRevealFrictionSelect) blurRevealFrictionSelect.value = v.blurRevealFriction || DEFAULT_SETTINGS.blurRevealFriction || 'instant';
+    if (blurCustomQuotesInput) blurCustomQuotesInput.value = v.blurCustomQuotes || '';
+    updateBlurCustomizationVisibility();
+  }
+
+  const POLICY_CONTROLS = [
+    filterCriteriaInput, whitelistCriteriaInput, confidenceSlider, hideModeSelect,
+    blurPresetSelect, blurClassicStrength, blurClassicColor, blurClassicReset,
+    blurFlashcardTopicSelect, blurRevealFrictionSelect, blurCustomQuotesInput
+  ];
+
+  function setPolicyControlsLocked(locked) {
+    POLICY_CONTROLS.forEach((el) => { if (el) el.disabled = locked; });
+    presetChips.forEach((chip) => { chip.disabled = locked; });
+    if (blurClassicSwatches) {
+      blurClassicSwatches.querySelectorAll('button').forEach((btn) => { btn.disabled = locked; });
+    }
+  }
+
+  /** Full repaint of the scope bar + form for the selected scope. */
+  function renderScopeUI() {
+    scopeSegs.forEach((btn) => {
+      const active = btn.dataset.scope === scope;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+    renderHeaderSwitch();
+
+    const isPlatform = scope !== 'shared';
+    const customized = hasProfile(scope);
+    const locked = isScopeLocked();
+    btnCustomizeScope.classList.toggle('hidden', !(isPlatform && !customized));
+    btnRevertScope.classList.toggle('hidden', !(isPlatform && customized));
+
+    if (isPlatform && customized) {
+      const p = raw.platformProfiles[scope];
+      // Cheap freshness check for the copy — no timestamp needed: the criteria
+      // fingerprint IS the identity the cache uses too.
+      const diverged = criteriaFingerprint(p.filterCriteria, p.whitelistCriteria) !==
+        criteriaFingerprint(raw.filterCriteria, raw.whitelistCriteria);
+      scopeStatusKey = diverged ? 'scopeCriteriaDiverged' : 'scopeCriteriaSame';
+    } else if (isPlatform) {
+      scopeStatusKey = 'scopeFollowingShared';
+    } else {
+      scopeStatusKey = '';
+    }
+    scopeStatusText.textContent = scopeStatusKey ? t(scopeStatusKey) : '';
+    scopeStatusRow.hidden = !isPlatform;
+
+    document.querySelectorAll('.scope-card').forEach((card) => card.classList.toggle('scope-locked', locked));
+    setPolicyControlsLocked(locked);
+
+    populatePolicyFields(valuesForScope(scope));
+    const v = valuesForScope(scope);
+    savedCriteria = v.filterCriteria;
+    savedWhitelist = v.whitelistCriteria || '';
+    updateCriteriaState();
+  }
+
+  /** Switch scope, parking the current scope's unsaved criteria draft first. */
+  function setScope(next) {
+    if (!raw || next === scope || (next !== 'shared' && next !== 'facebook' && next !== 'threads')) return;
+    updateCriteriaState();
+    scope = next;
+    renderScopeUI();
+  }
+
+  /**
+   * Save a policy change for the selected scope. On a platform with its own
+   * profile the write merges into platformProfiles (kept in sync synchronously
+   * so rapid slider/debounced edits never lose one another); on Chung it writes
+   * the top-level keys every following platform shares.
+   */
+  function saveForScope(partial, message) {
+    if (scope === 'shared') {
+      return save(partial, message).then((okFlag) => {
+        if (okFlag) Object.assign(raw, partial);
+        return okFlag;
+      });
+    }
+    if (!hasProfile(scope)) return Promise.resolve(false);
+    const profile = { ...raw.platformProfiles[scope], ...partial };
+    const nextProfiles = { ...raw.platformProfiles, [scope]: profile };
+    return save({ platformProfiles: nextProfiles }, message).then((okFlag) => {
+      if (okFlag) raw.platformProfiles = nextProfiles;
+      return okFlag;
+    });
+  }
+
+  /** Copy-on-write: snapshot the current (Chung) policy into this platform's profile. */
+  function customizeScope() {
+    if (scope === 'shared' || !raw || hasProfile(scope)) return;
+    const snapshot = {};
+    const v = valuesForScope(scope);
+    PROFILE_SETTING_KEYS.forEach((k) => { snapshot[k] = v[k]; });
+    const nextProfiles = { ...raw.platformProfiles, [scope]: snapshot };
+    save({ platformProfiles: nextProfiles }, t('toastScopeCustomized', { platform: platformLabel(scope) })).then((okFlag) => {
+      if (!okFlag) return;
+      raw.platformProfiles = nextProfiles;
+      writeDraft(null); // start the copy clean, not from a leftover draft
+      renderScopeUI();
+    });
+  }
+
+  /** "Use Chung again": delete the profile; the platform follows Chung immediately. */
+  function revertScope() {
+    if (scope === 'shared' || !raw || !hasProfile(scope)) return;
+    const nextProfiles = { ...raw.platformProfiles };
+    delete nextProfiles[scope];
+    save({ platformProfiles: nextProfiles }, t('toastScopeReverted', { platform: platformLabel(scope) })).then((okFlag) => {
+      if (!okFlag) return;
+      raw.platformProfiles = nextProfiles;
+      writeDraft(null);
+      renderScopeUI();
+    });
+  }
+
+  scopeSegs.forEach((btn) => btn.addEventListener('click', () => setScope(btn.dataset.scope)));
+  btnCustomizeScope.addEventListener('click', customizeScope);
+  btnRevertScope.addEventListener('click', revertScope);
 
   function updateStatsDisplay(stats = {}) {
     const scanned = stats.scanned || 0;
@@ -291,9 +497,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // On/off switch, threshold, display mode, blur: take effect immediately
+  // On/off switch, threshold, display mode, blur: take effect immediately.
+  // On a customized platform these write that platform's profile; on Chung the
+  // top-level keys every still-following platform shares.
   extensionEnabled.addEventListener('change', () => {
-    save({ extensionEnabled: extensionEnabled.checked }, extensionEnabled.checked ? t('toastEnabled') : t('toastDisabled'));
+    saveForScope({ extensionEnabled: extensionEnabled.checked }, extensionEnabled.checked ? t('toastEnabled') : t('toastDisabled'));
   });
 
   confidenceSlider.addEventListener('input', () => {
@@ -301,7 +509,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   // `change` fires on release: one save (and one 0-token re-gate) per adjustment
   confidenceSlider.addEventListener('change', () => {
-    save({ confidenceThreshold: parseInt(confidenceSlider.value, 10) });
+    saveForScope({ confidenceThreshold: parseInt(confidenceSlider.value, 10) });
   });
 
   function strengthHintKey(px) {
@@ -348,7 +556,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!blurClassicStrength) return;
     const look = window.JevFB.classicBlurLook(blurClassicStrength.value, classicTint);
     renderClassicLook(look.px, look.tint);
-    save({ blurClassicStrength: look.px, blurClassicTint: look.tint });
+    saveForScope({ blurClassicStrength: look.px, blurClassicTint: look.tint });
   }
 
   function updateBlurCustomizationVisibility() {
@@ -369,13 +577,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   hideModeSelect.addEventListener('change', () => {
-    save({ hideMode: hideModeSelect.value });
+    saveForScope({ hideMode: hideModeSelect.value });
     updateBlurCustomizationVisibility();
   });
 
   if (blurPresetSelect) {
     blurPresetSelect.addEventListener('change', () => {
-      save({ blurPreset: blurPresetSelect.value });
+      saveForScope({ blurPreset: blurPresetSelect.value });
       updateBlurCustomizationVisibility();
     });
   }
@@ -422,13 +630,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (blurFlashcardTopicSelect) {
     blurFlashcardTopicSelect.addEventListener('change', () => {
-      save({ blurFlashcardTopic: blurFlashcardTopicSelect.value });
+      saveForScope({ blurFlashcardTopic: blurFlashcardTopicSelect.value });
     });
   }
 
   if (blurRevealFrictionSelect) {
     blurRevealFrictionSelect.addEventListener('change', () => {
-      save({ blurRevealFriction: blurRevealFrictionSelect.value });
+      saveForScope({ blurRevealFriction: blurRevealFrictionSelect.value });
     });
   }
 
@@ -437,16 +645,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     blurCustomQuotesInput.addEventListener('input', () => {
       clearTimeout(customQuotesTimeout);
       customQuotesTimeout = setTimeout(() => {
-        save({ blurCustomQuotes: blurCustomQuotesInput.value.trim() });
+        saveForScope({ blurCustomQuotes: blurCustomQuotesInput.value.trim() });
       }, 400);
     });
     blurCustomQuotesInput.addEventListener('change', () => {
       clearTimeout(customQuotesTimeout);
-      save({ blurCustomQuotes: blurCustomQuotesInput.value.trim() });
+      saveForScope({ blurCustomQuotes: blurCustomQuotesInput.value.trim() });
     });
   }
 
-  if (filterModeSelect) filterModeSelect.addEventListener('change', () => save({ filterMode: filterModeSelect.value }));
+  if (filterModeSelect) filterModeSelect.addEventListener('change', () => saveForScope({ filterMode: filterModeSelect.value }));
 
   // ==================== CRITERIA ====================
   // NOT saved on every keystroke: each saved criteria re-evaluates the posts
@@ -476,10 +684,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!isCriteriaDirty()) return;
     const value = filterCriteriaInput.value.trim();
     const wlValue = whitelistCriteriaInput ? whitelistCriteriaInput.value.trim() : '';
-    if (await save({ filterCriteria: value, whitelistCriteria: wlValue }, t('toastCriteriaApplied'))) {
+    if (await saveForScope({ filterCriteria: value, whitelistCriteria: wlValue }, t('toastCriteriaApplied'))) {
       savedCriteria = value;
       savedWhitelist = wlValue;
-      updateCriteriaState();
+      renderScopeUI(); // refresh the "criteria match Common" line on a platform scope
     }
   }
 
@@ -533,16 +741,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ==================== API KEY / ENDPOINT ====================
 
-  apiKeyInput.addEventListener('input', updateKeyWarningState);
+  const currentApiUrl = () => apiUrlInput.value.trim() || DEFAULT_SETTINGS.apiUrl;
+
+  apiKeyInput.addEventListener('input', () => {
+    renderProviderChrome();
+  });
 
   // Saved when the field is committed (blur / Enter), not per keystroke
   apiKeyInput.addEventListener('change', () => {
     const key = apiKeyInput.value.trim();
     if (key === savedApiKey) return;
-    save({ apiKey: key }, key ? t('toastApiKeySaved') : t('toastApiKeyDeleted')).then((ok) => {
-      if (ok) savedApiKey = key;
-    });
+    const url = currentApiUrl();
+    const permissionPromise = ensureHostPermission(url);
     setApiBadge(key ? 'badgeUntested' : 'badgeNotEntered', key ? 'badge badge-untested' : 'badge badge-error');
+    permissionPromise.then(async (granted) => {
+      if (!granted) {
+        let host = url;
+        try { host = new URL(url).hostname; } catch (_) {}
+        showApiError(t('errPermissionMissing', { host }));
+        return;
+      }
+      const ok = await save(
+        keyPayload(url),
+        key ? t('toastApiKeySaved') : t('toastApiKeyDeleted')
+      );
+      if (ok) {
+        savedApiKey = key;
+        savedApiUrl = url;
+      }
+    });
   });
 
   toggleKeyVisibility.addEventListener('click', () => {
@@ -560,7 +787,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Endpoints outside the manifest's host_permissions need an optional host
   // permission, otherwise requests depend on the server's CORS setup.
-  const BUILTIN_HOSTS = new Set(['api.typesafe.ai']);
+  const BUILTIN_HOSTS = new Set(self.__jevProviders.requiredHosts());
   const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
 
   function parseApiUrl(raw) {
@@ -602,7 +829,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // A committed endpoint saves itself when no permission prompt is needed;
   // otherwise "Test Connection" (a click, which may show the prompt) saves it.
   apiUrlInput.addEventListener('change', async () => {
-    const url = apiUrlInput.value.trim() || DEFAULT_SETTINGS.apiUrl;
+    endpointTouched = true;
+    const url = currentApiUrl();
     if (url === savedApiUrl) return;
     const u = parseApiUrl(url);
     if (!u) {
@@ -613,22 +841,99 @@ document.addEventListener('DOMContentLoaded', async () => {
     const granted = BUILTIN_HOSTS.has(u.hostname) ||
       await chrome.permissions.contains({ origins: [originOf(u)] }).catch(() => false);
     if (!granted) {
+      applyI18n();
       showApiError(t('errPermissionNeeded', { host: u.hostname }));
       return;
     }
     if (await save({ apiUrl: url }, t('toastEndpointSaved'))) savedApiUrl = url;
+    applyI18n();
   });
+
+  function renderProviderChoices() {
+    providerChips.replaceChildren();
+    self.__jevProviders.PROVIDERS.forEach((provider) => {
+      const label = document.createElement('label');
+      label.className = 'chip';
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'jevProvider';
+      input.value = provider.id;
+      const span = document.createElement('span');
+      span.dataset.i18n = provider.labelKey;
+      label.append(input, span);
+      input.addEventListener('change', () => {
+        if (input.checked) selectProvider(provider);
+      });
+      providerChips.append(label);
+    });
+  }
+
+  function renderProviderChrome() {
+    const url = currentApiUrl();
+    const provider = self.__jevProviders.resolveProvider(url);
+    providerChips.querySelectorAll('input[name="jevProvider"]').forEach((input) => {
+      input.checked = provider.id !== 'custom' && input.value === provider.id;
+    });
+    providerChips.setAttribute('aria-label', t('providerGroupLabel'));
+    providerHint.dataset.i18n = provider.hintKey;
+    apiKeyInput.dataset.i18nPlaceholder = provider.placeholderKey;
+    if (provider.keyUrl) {
+      linkGetApiKey.href = provider.keyUrl;
+      linkGetApiKey.classList.remove('hidden');
+    } else {
+      linkGetApiKey.classList.add('hidden');
+    }
+    if (provider.id === 'custom') {
+      advancedSettings.classList.remove('hidden');
+    }
+    const key = apiKeyInput.value.trim();
+    const showShape = !!(provider.keyShapePrefix && key && !key.startsWith(provider.keyShapePrefix));
+    keyShapeHint.classList.toggle('hidden', !showShape);
+    if (showShape) {
+      keyShapeHint.dataset.i18n = provider.keyShapeHintKey;
+      keyShapeHint.textContent = t(provider.keyShapeHintKey);
+    }
+  }
+
+  function selectProvider(provider) {
+    const url = provider.apiUrl;
+    endpointTouched = true;
+    const permissionPromise = ensureHostPermission(url);
+    rememberFieldKey(savedApiUrl);
+    const previousUrl = savedApiUrl;
+    apiUrlInput.value = url;
+    showKeyFor(url);
+    advancedSettings.classList.add('hidden');
+    applyI18n();
+    const shown = apiKeyInput.value.trim();
+    setApiBadge(shown ? 'badgeUntested' : 'badgeNotEntered', shown ? 'badge badge-untested' : 'badge badge-error');
+    permissionPromise.then(async (granted) => {
+      if (!granted) {
+        apiUrlInput.value = previousUrl;
+        showKeyFor(previousUrl);
+        applyI18n();
+        const host = provider.hosts[0] || '';
+        showApiError(t('errPermissionMissing', { host }));
+        return;
+      }
+      const payload = keyPayload(url);
+      if (await save(payload, t('toastEndpointSaved'))) {
+        savedApiUrl = url;
+        savedApiKey = payload.apiKey;
+      }
+    });
+  }
 
   /** Save key + endpoint, then test them. Call synchronously from a click. */
   async function saveAndTestConnection() {
     const key = apiKeyInput.value.trim();
-    const url = apiUrlInput.value.trim() || DEFAULT_SETTINGS.apiUrl;
+    const url = currentApiUrl();
     const permissionPromise = ensureHostPermission(url); // keep user gesture
+    applyI18n();
     hideApiError();
 
     if (!parseApiUrl(url)) {
       setApiBadge('badgeInvalidUrl', 'badge badge-error');
-      advancedSettings.classList.remove('hidden');
       showApiError(t('errApiUrlProtocol'));
       return;
     }
@@ -647,7 +952,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(t('errPermissionMissing', { host: parseApiUrl(url).hostname }));
       }
       if (key !== savedApiKey || url !== savedApiUrl) {
-        await chrome.storage.local.set({ apiKey: key, apiUrl: url });
+        await chrome.storage.local.set(keyPayload(url));
         savedApiKey = key;
         savedApiUrl = url;
       }
@@ -655,7 +960,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (response && response.success) {
         setApiBadge('badgeConnGood', 'badge badge-success');
-        apiKeyWarning.classList.add('hidden');
       } else {
         setApiBadge('badgeConnError', 'badge badge-error');
         showApiError(response?.error || t('errInvalidOrUnapproved'));
@@ -669,16 +973,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   btnTestKey.addEventListener('click', saveAndTestConnection);
-
-  // Quick 1-click Mock Server Setup
-  btnQuickMock.addEventListener('click', () => {
-    apiKeyInput.value = 'mock_jev_test_key_local';
-    apiUrlInput.value = 'http://localhost:3000';
-    advancedSettings.classList.remove('hidden');
-    btnToggleAdvanced.textContent = t('btnToggleAdvancedHide');
-    updateKeyWarningState();
-    saveAndTestConnection();
-  });
 
   // ==================== CACHE ====================
   // Two-step confirm: clearing makes every post cost tokens again.

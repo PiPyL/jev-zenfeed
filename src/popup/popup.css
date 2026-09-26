@@ -116,12 +116,6 @@ body {
   margin-right: 4px;
 }
 
-.btn-mock-action .ui-svg-icon {
-  width: 13px;
-  height: 13px;
-  margin-right: 4px;
-}
-
 .btn-secondary .ui-svg-icon {
   width: 13px;
   height: 13px;
@@ -135,6 +129,94 @@ body {
   justify-content: space-between;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
+}
+
+/* Scope bar ("Chung · Facebook · Threads") — the one form below edits the
+   selected scope; a platform still following Chung shows read-only values. */
+.scope-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scope-segments {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-color);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.scope-seg {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.scope-seg:hover {
+  color: var(--text-main);
+}
+
+.scope-seg.active {
+  background: var(--card-bg);
+  color: var(--primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.scope-seg:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.scope-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.scope-action {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scope-action:hover {
+  text-decoration: underline;
+}
+
+/* Locked scope: a platform still following Chung shows shared values read-only */
+.scope-card.scope-locked {
+  opacity: 0.62;
+}
+
+.switch.locked {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.switch.locked .slider {
+  cursor: not-allowed;
+}
+
+/* A gray track reads "not yours to switch" even when the shared state is on */
+.switch.locked input:checked + .slider {
+  background-color: var(--text-muted);
 }
 
 .brand {
@@ -332,6 +414,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  color: var(--text-main);
 }
 
 .btn-icon .ui-svg-icon {
@@ -339,6 +422,14 @@ textarea {
   height: 14px;
   margin-right: 0;
   vertical-align: 0;
+  color: inherit;
+  stroke: currentColor;
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn-icon {
+    color: #fff;
+  }
 }
 
 /* Badges */
@@ -468,6 +559,7 @@ textarea {
 }
 
 .chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   background: var(--bg-color);
@@ -485,11 +577,25 @@ textarea {
   background: rgba(24, 119, 242, 0.08);
 }
 
-.chip.active {
+.chip.active,
+.chip:has(input:checked) {
   border-color: var(--primary);
   background: rgba(24, 119, 242, 0.14);
   color: var(--primary);
   font-weight: 600;
+}
+
+.chip input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.chip:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* Setting Rows */
@@ -655,50 +761,6 @@ textarea {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-/* API Warning Box */
-.api-warning-box {
-  margin: 6px 0 10px 0;
-  padding: 8px 10px;
-  background: rgba(245, 166, 35, 0.12);
-  border: 1px solid rgba(245, 166, 35, 0.4);
-  border-radius: 6px;
-  font-size: 11px;
-}
-
-.warning-title {
-  color: #b26a00;
-  margin-bottom: 2px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .warning-title {
-    color: #fbc02d;
-  }
-}
-
-.warning-desc {
-  color: var(--text-muted);
-  line-height: 1.3;
-  margin-bottom: 6px;
-}
-
-.btn-mock-action {
-  background: var(--primary);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 5px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-block;
-  transition: opacity 0.2s;
-}
-
-.btn-mock-action:hover {
-  opacity: 0.9;
 }
 
 /* Live Activity Logs Card */

@@ -13,7 +13,8 @@
   const DEFAULT_SETTINGS = Object.freeze({
     extensionEnabled: true,
     apiKey: '',
-    apiUrl: 'https://api.typesafe.ai/v1',
+    // Must match the openrouter record in providers.js. Tests lock the two strings.
+    apiUrl: 'https://openrouter.ai/api/v1',
     filterCriteria: 'Gambling ads, sports betting, card games for money, fast cash loans, plot spoilers for movies and series, celebrity gossip and toxic clickbait, crypto investment pitches, junk meme coins, get-rich-quick schemes, houses for sale, rentals, apartments for rent',
     whitelistCriteria: '',
     confidenceThreshold: 70,
@@ -41,14 +42,69 @@
     // Classic pill blur. Strength is the CSS blur radius in px (6–32).
     // Tint is '' (no wash) or a #rrggbb color laid over the blurred post.
     blurClassicStrength: 18,
-    blurClassicTint: ''
+    blurClassicTint: '',
+    // Per-platform policy copies ("Chung · Facebook · Threads" scope bar).
+    // The CURRENT top-level keys stay the shared ("Chung") policy, so existing
+    // installs need no migration. A platform missing here (or an empty object)
+    // follows Chung; "customize" snapshots all PROFILE_SETTING_KEYS once
+    // (copy-on-write) and "use Chung again" deletes the copy. API key,
+    // endpoint and language are deliberately NOT part of a profile.
+    platformProfiles: Object.freeze({})
   });
 
   const PUBLIC_SETTING_KEYS = Object.freeze([
     'extensionEnabled', 'filterCriteria', 'whitelistCriteria', 'confidenceThreshold', 'hideMode', 'filterMode', 'language',
     'blurPreset', 'blurFlashcardTopic', 'blurCustomQuotes', 'blurRevealFriction',
+    'blurClassicStrength', 'blurClassicTint', 'platformProfiles'
+  ]);
+
+  /**
+   * The policy keys a platform profile owns — everything the content script
+   * needs to run EXCEPT credentials (apiKey/apiUrl) and UI language, which
+   * stay shared across the whole extension. Kept in sync with the "Customize"
+   * snapshot in popup.js via tests.
+   */
+  const PROFILE_SETTING_KEYS = Object.freeze([
+    'extensionEnabled', 'filterCriteria', 'whitelistCriteria', 'confidenceThreshold', 'hideMode', 'filterMode',
+    'blurPreset', 'blurFlashcardTopic', 'blurCustomQuotes', 'blurRevealFriction',
     'blurClassicStrength', 'blurClassicTint'
   ]);
+
+  const PLATFORM_IDS = Object.freeze(['facebook', 'threads']);
+
+  /**
+   * The stored profile for a platform, or null when it still follows Chung.
+   * An object without any profile key counts as "no copy yet".
+   * @param {{platformProfiles?: unknown}} settings
+   * @param {string} platform
+   * @returns {object|null}
+   */
+  function getPlatformProfile(settings, platform) {
+    const profiles = settings && settings.platformProfiles;
+    if (!profiles || typeof profiles !== 'object' || !PLATFORM_IDS.includes(platform)) return null;
+    const profile = profiles[platform];
+    if (!profile || typeof profile !== 'object') return null;
+    return PROFILE_SETTING_KEYS.some((k) => profile[k] !== undefined) ? profile : null;
+  }
+
+  /**
+   * Effective settings for ONE platform. Without a profile this is the shared
+   * settings object itself (identity preserved, so callers can detect
+   * "follows Chung"); with one, the profile's policy keys win and everything
+   * else (API key, endpoint, language, stats) stays shared.
+   * @param {object} settings
+   * @param {string} platform 'facebook' | 'threads'
+   * @returns {object}
+   */
+  function resolvePlatformSettings(settings, platform) {
+    const profile = getPlatformProfile(settings, platform);
+    if (!profile) return settings;
+    const resolved = { ...settings };
+    PROFILE_SETTING_KEYS.forEach((k) => {
+      if (profile[k] !== undefined) resolved[k] = profile[k];
+    });
+    return resolved;
+  }
 
   const BLUR_CLASSIC_STRENGTH_MIN = 6;
   const BLUR_CLASSIC_STRENGTH_MAX = 32;
@@ -197,6 +253,10 @@
     root.JevFB.shouldHideDecision = shouldHideDecision;
     root.JevFB.DEFAULT_SETTINGS = DEFAULT_SETTINGS;
     root.JevFB.PUBLIC_SETTING_KEYS = PUBLIC_SETTING_KEYS;
+    root.JevFB.PROFILE_SETTING_KEYS = PROFILE_SETTING_KEYS;
+    root.JevFB.PLATFORM_IDS = PLATFORM_IDS;
+    root.JevFB.getPlatformProfile = getPlatformProfile;
+    root.JevFB.resolvePlatformSettings = resolvePlatformSettings;
     root.JevFB.criteriaTopics = criteriaTopics;
     root.JevFB.filterTopics = filterTopics;
     root.JevFB.exceptionTopics = exceptionTopics;
@@ -204,7 +264,8 @@
     root.JevFB.criteriaFingerprint = criteriaFingerprint;
     root.JevFB.classicBlurLook = classicBlurLook;
     root.__jevDefaults = {
-      DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, filterTopics, exceptionTopics, partitionCriteria, criteriaFingerprint,
+      DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, PROFILE_SETTING_KEYS, PLATFORM_IDS, getPlatformProfile, resolvePlatformSettings,
+      criteriaTopics, filterTopics, exceptionTopics, partitionCriteria, criteriaFingerprint,
       classicBlurLook
     };
   }

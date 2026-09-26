@@ -1,6 +1,6 @@
 # Privacy Policy for ZenFeed
 
-**Last Updated: September 23, 2026**
+**Last Updated: September 26, 2026**
 
 ZenFeed ("we", "our", or "the extension") is an open-source browser extension designed to provide active noise cancellation for your social feeds by filtering unwanted content using AI. We respect your privacy and are committed to protecting it. This Privacy Policy explains our practices regarding data collection, usage, and storage.
 
@@ -11,7 +11,7 @@ ZenFeed ("we", "our", or "the extension") is an open-source browser extension de
 ### A. Post Snippets (Website Content)
 - **What is processed:** When you browse supported social media platforms (specifically the Facebook™ web feed and the Threads™ home feeds), the extension extracts short text snippets of visible posts on your feed.
 - **Why it is processed:** These snippets are evaluated against your configured filter criteria (e.g., hiding gambling ads, spoilers, or low-quality clickbait) to determine whether the post should be concealed.
-- **How it is transmitted:** Snippets are sent via secure HTTPS to the evaluation endpoint you have configured (by default, the TypeSafe AI Jev decision API at `api.typesafe.ai`, or your custom configured proxy/server).
+- **How it is transmitted:** Snippets are sent via secure HTTPS to the evaluation endpoint you select. A new install that has not saved an endpoint uses OpenRouter at `https://openrouter.ai` (System One, model `jev-1.13`). OpenRouter forwards that request to TypeSafe. Choosing TypeSafe sends snippets to `https://api.typesafe.ai`. A custom URL or local mock sends them only to that host. The extension asks permission to contact OpenRouter or a custom host when you select or test that endpoint. An install that already saved a key before this choice existed keeps the TypeSafe endpoint.
 - **Data retention:** The backend API evaluates the snippet transiently in memory to return a classification score. ZenFeed does not persistently store your feed content on remote servers, nor do we build user browsing profiles.
 
 ### B. User Settings & API Keys (Local Storage Only)
@@ -37,8 +37,9 @@ ZenFeed strictly adheres to the Chrome Web Store Limited Use requirements:
 
 ## 3. Third-Party Services
 
-- **TypeSafe AI (Default AI Decision Provider):** By default, post text snippets are sent to `https://api.typesafe.ai` for content evaluation. For information regarding TypeSafe AI's data handling policies, please visit [TypeSafe AI Console](https://console.typesafe.ai/).
-- **Bring Your Own Key / Custom Endpoints (BYOK):** If you configure a custom proxy or self-hosted endpoint (such as a local Ollama instance), data transmission occurs directly between your browser and your specified host.
+- **OpenRouter (default for a new install):** Post snippets and your filter criteria are sent to `https://openrouter.ai`, which routes the decision request to TypeSafe. Retention of that request is governed by [OpenRouter's privacy policy](https://openrouter.ai/privacy). ZenFeed does not operate that service and does not store the snippet on a server of its own.
+- **TypeSafe AI (optional, for a key you already have):** If you select TypeSafe, snippets are sent to `https://api.typesafe.ai`. See the [TypeSafe AI Console](https://console.typesafe.ai/) for that provider's policy.
+- **Bring Your Own Key / Custom Endpoints (BYOK):** If you configure a custom proxy or self-hosted endpoint (such as a local mock server), data transmission occurs directly between your browser and your specified host.
 
 ---
 

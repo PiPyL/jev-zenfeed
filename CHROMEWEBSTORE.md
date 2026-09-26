@@ -1,7 +1,7 @@
 # Chrome Web Store Listing — ZenFeed
 
 > Last Updated: 2026-09-26
-> Version: 1.1.0
+> Version: 1.2.0
 > Extension ID: jjnemjiljlfjafaifoajihdiehedlibk
 > Store URL: https://chromewebstore.google.com/detail/zenfeed/jjnemjiljlfjafaifoajihdiehedlibk
 
@@ -106,13 +106,13 @@ Khi submit trên Developer Dashboard, Google yêu cầu giải trình cho từng
 | Host Pattern | Justification (Copy vào form CWS) |
 |---|---|
 | `*://*.facebook.com/*` | Essential for the core functionality: allows the extension content script to detect feed post elements, extract public post text for filtering against user-defined criteria, and apply visual hiding/blur overlays. |
-| `https://api.typesafe.ai/*` | Required to communicate with the default TypeSafe AI Jev decision API to evaluate post snippets against the user's content filter criteria. |
+| `https://api.typesafe.ai/*` | Required so an existing TypeSafe key can call the TypeSafe Jev decision API at api.typesafe.ai. New installs can instead choose OpenRouter, which is not a required host. |
 
 ### Optional Host Permissions
 
 | Host Pattern | Justification (Copy vào form CWS) |
 |---|---|
-| `https://*/*` | Enables power users to configure a custom HTTPS AI proxy gateway in the Advanced Settings tab. Access to a specific origin is only requested dynamically with an explicit user gesture (clicking 'Test Connection'). |
+| `https://*/*` | Lets the user grant one HTTPS origin at a time. Choosing OpenRouter, or testing a custom proxy, requests only that origin (`https://openrouter.ai/*` or the typed host) on the click. It is not granted at install, so an update does not add a new required host. |
 | `http://localhost/*` & `http://127.0.0.1/*` | Used only if a developer or advanced user chooses to run a local mock or self-hosted model server (e.g. Ollama). Plain http is accepted for these local addresses only, and access is requested on demand after a user click. |
 
 ---

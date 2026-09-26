@@ -164,8 +164,161 @@ assert.strictEqual(criteriaFingerprint('Cá độ, cờ bạc'), criteriaFingerp
 assert.notStrictEqual(criteriaFingerprint('Cá độ'), criteriaFingerprint('Cá độ, spoiler'));
 ok('Settings mặc định dùng chung; key public không chứa API key; tiêu chí được chuẩn hóa.');
 
-const { getEndpoint, parseJevDecisions, clipPostText, buildRequestBody, evaluateWithJev } =
+// 3b. Platform scope "Chung · Facebook · Threads": copy-on-write resolver
+const { PROFILE_SETTING_KEYS, PLATFORM_IDS, getPlatformProfile, resolvePlatformSettings } = globalThis.__jevDefaults;
+assert.deepStrictEqual(PLATFORM_IDS, ['facebook', 'threads']);
+assert.deepStrictEqual([...PROFILE_SETTING_KEYS].sort(), [
+  'blurClassicStrength', 'blurClassicTint', 'blurCustomQuotes', 'blurFlashcardTopic', 'blurPreset',
+  'blurRevealFriction', 'confidenceThreshold', 'extensionEnabled', 'filterCriteria', 'filterMode',
+  'hideMode', 'whitelistCriteria'
+].sort(), 'Hồ sơ nền tảng phải gói trọn chính sách (kể cả bật/tắt), ngoài API key/endpoint/ngôn ngữ');
+['apiKey', 'apiUrl', 'language'].forEach((k) => {
+  assert(!PROFILE_SETTING_KEYS.includes(k), `${k} không được nằm trong hồ sơ nền tảng`);
+});
+const sharedBase = { ...DEFAULT_SETTINGS, apiKey: 'sk_test', filterCriteria: 'Chung: cờ bạc' };
+assert.strictEqual(resolvePlatformSettings(sharedBase, 'threads'), sharedBase, 'Chưa có bản sao => dùng nguyên bộ Chung');
+assert.strictEqual(getPlatformProfile(sharedBase, 'threads'), null);
+assert.strictEqual(getPlatformProfile({ platformProfiles: { threads: {} } }, 'threads'), null, 'Bản sao rỗng = chưa tùy chỉnh');
+assert.strictEqual(getPlatformProfile(sharedBase, 'x'), null, 'Nền tảng lạ không có hồ sơ');
+const withProfile = { ...sharedBase, platformProfiles: { threads: { filterCriteria: 'Riêng: spoiler', confidenceThreshold: 90 } } };
+const resolvedThreads = resolvePlatformSettings(withProfile, 'threads');
+assert.strictEqual(resolvedThreads.filterCriteria, 'Riêng: spoiler');
+assert.strictEqual(resolvedThreads.confidenceThreshold, 90);
+assert.strictEqual(resolvedThreads.extensionEnabled, sharedBase.extensionEnabled, 'Khóa thiếu trong bản sao kế thừa Chung');
+assert.strictEqual(resolvedThreads.apiKey, 'sk_test', 'API key không bao giờ nằm trong hồ sơ');
+assert.strictEqual(resolvedThreads.language, DEFAULT_SETTINGS.language, 'Ngôn ngữ giao diện dùng chung');
+assert.strictEqual(resolvePlatformSettings(withProfile, 'facebook'), withProfile, 'Facebook chưa tùy chỉnh vẫn theo Chung');
+assert.strictEqual(sharedBase.filterCriteria, 'Chung: cờ bạc', 'Resolve không được đụng bộ Chung');
+const popupHtmlText = fs.readFileSync(path.resolve('src/popup/popup.html'), 'utf8');
+['data-scope="shared"', 'data-scope="facebook"', 'data-scope="threads"', 'id="btnCustomizeScope"', 'id="btnRevertScope"']
+  .forEach((needle) => assert(popupHtmlText.includes(needle), `popup.html thiếu ${needle}`));
+const popupJsText = fs.readFileSync(path.resolve('src/popup/popup.js'), 'utf8');
+['setScope(btn.dataset.scope)', 'btnCustomizeScope.addEventListener', 'btnRevertScope.addEventListener',
+  'saveForScope({ extensionEnabled', 'saveForScope({ confidenceThreshold', 'saveForScope({ filterCriteria: value, whitelistCriteria: wlValue }']
+  .forEach((needle) => assert(popupJsText.includes(needle), `popup.js thiếu nối dây: ${needle}`));
+assert(popupJsText.includes('resolvePlatformSettings(raw, s)') && popupJsText.includes('getPlatformProfile(raw, s)'),
+  'popup.js phải dùng resolver/lookup từ settings-defaults, không tự chế logic phạm vi');
+await import('../src/utils/i18n.js');
+const { SUPPORTED_LANGUAGES: scopeLangs, t: scopeT } = globalThis.__jevI18n;
+const SCOPE_I18N_KEYS = ['scopeBarLabel', 'scopeShared', 'scopePlatformFacebook', 'scopePlatformThreads', 'scopeBtnCustomize',
+  'scopeBtnUseShared', 'scopeFollowingShared', 'scopeCriteriaSame', 'scopeCriteriaDiverged', 'scopeSwitchTitleShared',
+  'scopeSwitchTitlePlatform', 'scopeSwitchLockedTitle', 'toastScopeCustomized', 'toastScopeReverted'];
+scopeLangs.forEach((lang) => {
+  SCOPE_I18N_KEYS.forEach((key) => {
+    assert.notStrictEqual(scopeT(lang.code, key), key, `${lang.code} thiếu chuỗi phạm vi ${key}`);
+  });
+});
+assert.strictEqual(scopeT('vi', 'scopeSwitchTitlePlatform', { platform: 'Threads' }), 'Bật/tắt ZenFeed riêng cho Threads');
+ok('Phạm vi Chung · Facebook · Threads: resolver copy-on-write, popup nối dây đủ, chuỗi i18n đủ cho 10 ngôn ngữ.');
+
+const { getEndpoint, parseJevDecisions, clipPostText, buildRequestBody, createDecisionBody, evaluateWithJev, testApiKey } =
   await import('../src/background/jev-client.js');
+const { PROVIDERS, resolveProvider, requiredHosts, legacyEndpointMigration, decisionCacheSuffix } = globalThis.__jevProviders;
+const openrouterProvider = PROVIDERS.find((provider) => provider.id === 'openrouter');
+const typesafeProvider = PROVIDERS.find((provider) => provider.id === 'typesafe');
+assert.strictEqual(DEFAULT_SETTINGS.apiUrl, openrouterProvider.apiUrl, 'URL mặc định phải là OpenRouter');
+assert.deepStrictEqual(requiredHosts(), ['api.typesafe.ai']);
+requiredHosts().forEach((host) => {
+  assert(manifest.host_permissions.includes(`https://${host}/*`), `Thiếu quyền bắt buộc cho ${host}`);
+});
+assert(!manifest.host_permissions.some((pattern) => pattern.includes('openrouter.ai')), 'OpenRouter không được là host bắt buộc');
+assert(manifest.optional_host_permissions.includes('https://*/*'));
+assert(!manifest.content_scripts.some((entry) => (entry.js || []).some((file) => file.includes('providers.js'))), 'Content script không nạp providers.js');
+const expectProvider = (url, id, model, probe) => {
+  const provider = resolveProvider(url);
+  assert.strictEqual(provider.id, id, url);
+  assert.strictEqual(provider.model, model, url);
+  assert.strictEqual(provider.probe, probe, url);
+};
+expectProvider('https://openrouter.ai/api/v1', 'openrouter', 'typesafe/jev-1.13', 'systemone');
+expectProvider('https://openrouter.ai/api/v1/', 'openrouter', 'typesafe/jev-1.13', 'systemone');
+expectProvider('https://openrouter.ai/api', 'openrouter', 'typesafe/jev-1.13', 'systemone');
+expectProvider('https://api.typesafe.ai/v1', 'typesafe', 'jev-latest', 'models');
+expectProvider('http://localhost:3000', 'custom', 'jev-latest', 'models');
+expectProvider('https://proxy.example.com/v2', 'custom', 'jev-latest', 'models');
+expectProvider('https://evil.openrouter.ai/api/v1', 'custom', 'jev-latest', 'models');
+assert.strictEqual(legacyEndpointMigration({ apiKey: 'jev_existing', apiUrl: '' }), typesafeProvider.apiUrl);
+assert.strictEqual(legacyEndpointMigration({ apiKey: 'jev_existing' }), typesafeProvider.apiUrl);
+assert.strictEqual(legacyEndpointMigration({ apiKey: '', apiUrl: '' }), null);
+assert.strictEqual(legacyEndpointMigration({ apiKey: 'sk-or-x', apiUrl: openrouterProvider.apiUrl }), null);
+const onePost = [{ id: 'p', text: 'hello' }];
+assert.strictEqual(createDecisionBody(openrouterProvider.apiUrl, onePost, 'ads').model, 'typesafe/jev-1.13');
+assert.strictEqual(createDecisionBody(typesafeProvider.apiUrl, onePost, 'ads').model, 'jev-latest');
+assert.strictEqual(buildRequestBody(onePost, 'ads').model, 'jev-latest');
+assert.notStrictEqual(decisionCacheSuffix('abc', openrouterProvider.apiUrl), decisionCacheSuffix('abc', typesafeProvider.apiUrl));
+assert.ok(decisionCacheSuffix('abc', openrouterProvider.apiUrl).endsWith('_typesafe/jev-1.13'));
+// OpenRouter serves Jev under /api/alpha/decisions; the other providers append /systemone.
+assert.strictEqual(openrouterProvider.decisionsUrl, 'https://openrouter.ai/api/alpha/decisions');
+assert.strictEqual(typesafeProvider.decisionsUrl, undefined);
+assert.strictEqual(resolveProvider('https://proxy.example.com/v2').decisionsUrl, undefined);
+const popupHtml = fs.readFileSync(path.resolve('src/popup/popup.html'), 'utf8');
+const popupJs = fs.readFileSync(path.resolve('src/popup/popup.js'), 'utf8');
+assert(popupHtml.includes('id="providerChips"'));
+assert(popupHtml.includes('../utils/providers.js'));
+assert(popupHtml.indexOf('../utils/providers.js') < popupHtml.indexOf('popup.js'));
+assert(!popupJs.includes("new Set(['api.typesafe.ai'])"));
+assert(popupJs.includes('requiredHosts()'));
+const providerKeys = [
+  'providerGroupLabel', 'providerOpenRouterHint', 'providerTypeSafeHint', 'providerCustomHint',
+  'apiCardTitle', 'apiKeyPlaceholderOpenRouter', 'apiKeyPlaceholderTypeSafe', 'apiKeyPlaceholderCustom',
+  'keyShapeOpenRouter', 'errInsufficientCredit'
+];
+const { SUPPORTED_LANGUAGES, t: translate } = globalThis.__jevI18n;
+SUPPORTED_LANGUAGES.forEach((lang) => {
+  providerKeys.forEach((key) => {
+    assert.notStrictEqual(translate(lang.code, key), key, `${lang.code} thiếu ${key}`);
+  });
+  if (lang.code !== 'en') {
+    assert.notStrictEqual(translate(lang.code, 'providerOpenRouterHint'), translate('en', 'providerOpenRouterHint'), lang.code);
+    assert.notStrictEqual(translate(lang.code, 'apiCardTitle'), translate('en', 'apiCardTitle'), lang.code);
+  }
+});
+const originalFetch = globalThis.fetch;
+let resolveLive;
+try {
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url: String(url), body: opts && opts.body });
+    return new Response('{"error":"no credits"}', { status: 402 });
+  };
+  const credit = await testApiKey('sk-or-test', openrouterProvider.apiUrl, 'en');
+  assert.strictEqual(credit.success, false);
+  assert.match(credit.error, /credit/i);
+  assert.deepStrictEqual(calls.map((call) => call.url), ['https://openrouter.ai/api/alpha/decisions']);
+  assert.strictEqual(JSON.parse(calls[0].body).model, 'typesafe/jev-1.13');
+  calls.length = 0;
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response('{}', { status: 200 });
+  };
+  const typesafeProbe = await testApiKey('jev_test_key_value', typesafeProvider.apiUrl, 'en');
+  assert.strictEqual(typesafeProbe.success, true);
+  assert.ok(calls[0].endsWith('/models'));
+
+  resolveLive = globalThis.__jevProviders.resolveProvider;
+  globalThis.__jevProviders.resolveProvider = (url) => {
+    const found = resolveLive(url);
+    return String(url).includes('pinned.example')
+      ? { ...found, model: 'jev-pin-9', probe: 'models' }
+      : found;
+  };
+  calls.length = 0;
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url: String(url), body: opts && opts.body });
+    if (String(url).endsWith('/models')) return new Response('missing', { status: 404 });
+    return new Response('{}', { status: 200 });
+  };
+  const pinned = await testApiKey('proxy_key_123456', 'https://pinned.example/v1', 'en');
+  assert.strictEqual(pinned.success, true);
+  assert.ok(calls[0].url.endsWith('/models'));
+  assert.ok(calls[1].url.endsWith('/systemone'));
+  assert.strictEqual(JSON.parse(calls[1].body).model, 'jev-pin-9');
+  globalThis.__jevProviders.resolveProvider = resolveLive;
+} finally {
+  globalThis.fetch = originalFetch;
+  if (typeof resolveLive === 'function') globalThis.__jevProviders.resolveProvider = resolveLive;
+}
+ok('Registry provider: model, probe, migration, cache suffix, i18n, và OpenRouter không xin quyền lúc cài.');
 
 // 4. Endpoint normalization
 assert.strictEqual(getEndpoint('https://api.typesafe.ai/v1', 'models'), 'https://api.typesafe.ai/v1/models');
@@ -385,6 +538,27 @@ try {
   assert.strictEqual((await mockStats()).systemoneRequests, sBefore);
   await fake.chrome.storage.local.set({ filterCriteria: 'Cá độ bóng đá, cờ bạc' });
   ok('[Background] Sửa thứ tự/khoảng trắng tiêu chí không làm mất cache.');
+
+  // 20b. Platform scope: a Threads copy applies to Threads tabs only
+  const sharedHash20 = fastHash(criteriaFingerprint('Cá độ bóng đá, cờ bạc', ''));
+  const thSender20 = { id: 'test-extension', tab: { id: 1, url: 'https://www.threads.com/@user' } };
+  const fbSender20 = { id: 'test-extension', tab: { id: 2, url: 'https://www.facebook.com/' } };
+  await fake.chrome.storage.local.set({ platformProfiles: { threads: { filterCriteria: 'Chỉ ẩn spoiler phim' } } });
+  const threadsHash20 = fastHash(criteriaFingerprint('Chỉ ẩn spoiler phim', ''));
+  assert.notStrictEqual(threadsHash20, sharedHash20, 'Tiêu chí khác nhau => hash khác nhau');
+  assert.strictEqual((await fake.send({ action: 'GET_HOT_DECISIONS' }, thSender20)).criteriaHash, threadsHash20,
+    'Tab Threads phải nóng cache theo tiêu chí của bản sao Threads');
+  assert.strictEqual((await fake.send({ action: 'GET_HOT_DECISIONS' }, fbSender20)).criteriaHash, sharedHash20,
+    'Tab Facebook vẫn theo Chung');
+  // Same content + same criteria => one cache entry across platforms (same suffix)
+  assert.strictEqual((await fake.send({ action: 'GET_HOT_DECISIONS' }, fbSender20)).entries !== undefined, true);
+  await fake.chrome.storage.local.set({ platformProfiles: { threads: { filterCriteria: 'Cá độ bóng đá, CỜ BẠC' } } });
+  assert.strictEqual((await fake.send({ action: 'GET_HOT_DECISIONS' }, thSender20)).criteriaHash, sharedHash20,
+    'Bản sao cùng tiêu chí (sau chuẩn hóa) => trúng chung một mục cache');
+  await fake.chrome.storage.local.set({ platformProfiles: {} });
+  assert.strictEqual((await fake.send({ action: 'GET_HOT_DECISIONS' }, thSender20)).criteriaHash, sharedHash20,
+    'Xóa bản sao => Threads về theo Chung');
+  ok('[Background] Phạm vi nền tảng: bản sao Threads áp cho tab Threads, Facebook vẫn theo Chung, xóa bản sao là về Chung.');
 
   // 21. "Ẩn nhầm" override: never hidden again, no API call
   assert.deepStrictEqual(await fake.send({ action: 'MARK_SAFE', hash: 'zz<script>' }), { success: false }, 'Hash lạ bị từ chối');

@@ -23,6 +23,20 @@
       </label>
     </header>
 
+    <!-- Scope bar: the ONE form below edits Chung, or one platform's own copy -->
+    <div class="scope-bar" id="scopeBar">
+      <div class="scope-segments" id="scopeSegments" role="group">
+        <button type="button" class="scope-seg active" data-scope="shared" aria-pressed="true" data-i18n="scopeShared">Common</button>
+        <button type="button" class="scope-seg" data-scope="facebook" aria-pressed="false" data-i18n="scopePlatformFacebook">Facebook</button>
+        <button type="button" class="scope-seg" data-scope="threads" aria-pressed="false" data-i18n="scopePlatformThreads">Threads</button>
+      </div>
+      <div class="scope-status" id="scopeStatusRow" hidden>
+        <span id="scopeStatusText"></span>
+        <button type="button" id="btnCustomizeScope" class="scope-action hidden" data-i18n="scopeBtnCustomize">Customize this platform</button>
+        <button type="button" id="btnRevertScope" class="scope-action hidden" data-i18n="scopeBtnUseShared">Use Common again</button>
+      </div>
+    </div>
+
     <!-- Tabs -->
     <div class="tabs" role="tablist">
       <button type="button" id="tabActivity" class="tab-btn active" data-tab="activity" role="tab" aria-controls="panelActivity" aria-selected="true" tabindex="0" data-i18n="tabActivity">Activity</button>
@@ -127,30 +141,21 @@
           <span id="apiStatusBadge" class="badge badge-untested" data-i18n="badgeUntested">Untested</span>
         </div>
 
-        <a id="linkGetApiKey" class="get-key-link" href="https://console.typesafe.ai/" target="_blank" rel="noopener noreferrer">
+        <div id="providerChips" class="chips-container" role="radiogroup"></div>
+        <p id="providerHint" class="setting-desc"></p>
+
+        <a id="linkGetApiKey" class="get-key-link" href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">
           <svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           <span data-i18n="apiKeyGetLink">Get an API Key</span>
         </a>
 
         <div class="input-group">
-          <input type="password" id="apiKey" data-i18n-placeholder="apiKeyPlaceholder" placeholder="Enter your TypeSafe AI API Key (jev_...)" autocomplete="off">
+          <input type="password" id="apiKey" data-i18n-placeholder="apiKeyPlaceholderOpenRouter" placeholder="OpenRouter API key (sk-or-...)" autocomplete="off">
           <button type="button" id="toggleKeyVisibility" class="btn-icon" data-i18n-title="toggleKeyVisibilityTitle" title="Show/Hide Key">
             <svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
-
-        <!-- Warning if key is missing -->
-        <div id="apiKeyWarning" class="api-warning-box hidden">
-          <div class="warning-title">
-            <svg class="ui-svg-icon" style="color: #f59e0b; width: 14px; height: 14px; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <span data-i18n-html="apiKeyWarningTitleHtml"><strong>API Key not configured</strong></span>
-          </div>
-          <div class="warning-desc" data-i18n="apiKeyWarningDesc">The extension cannot filter posts without a TypeSafe key or a Mock Server.</div>
-          <button type="button" id="btnQuickMock" class="btn-mock-action">
-            <svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            <span data-i18n="btnQuickMock">Quick-start Local Mock Server (localhost:3000)</span>
-          </button>
-        </div>
+        <p id="keyShapeHint" class="setting-desc hidden"></p>
 
         <div class="api-actions">
           <button id="btnTestKey" class="btn btn-secondary">
@@ -164,13 +169,13 @@
 
         <div id="advancedSettings" class="advanced-settings hidden">
           <label for="apiUrl" data-i18n="apiUrlLabel">API Base URL:</label>
-          <input type="text" id="apiUrl" value="https://api.typesafe.ai/v1" placeholder="https://api.typesafe.ai/v1">
+          <input type="text" id="apiUrl" value="https://openrouter.ai/api/v1" placeholder="https://openrouter.ai/api/v1">
           <small class="hint" data-i18n-html="apiUrlHintHtml">Supports the official TypeSafe AI API, a Proxy Gateway, or a local Mock Server (<code>http://localhost:3000</code>).</small>
         </div>
       </section>
 
-      <!-- Filter Criteria Section -->
-      <section class="card">
+      <!-- Filter Criteria Section (scoped: Chung, or a platform's own copy) -->
+      <section class="card scope-card">
         <div class="card-title">
           <span class="title-with-icon">
             <svg class="ui-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
@@ -211,8 +216,8 @@
         </div>
       </section>
 
-      <!-- Configuration Settings -->
-      <section class="card">
+      <!-- Configuration Settings (scoped: Chung, or a platform's own copy) -->
+      <section class="card scope-card">
         <div class="setting-row">
           <div>
             <label for="confidenceThreshold" class="setting-label" data-i18n="confidenceLabel">Filter Confidence:</label>
@@ -331,6 +336,7 @@
   </div>
 
   <script src="../utils/settings-defaults.js"></script>
+  <script src="../utils/providers.js"></script>
   <script src="../utils/i18n.js"></script>
   <script src="popup.js"></script>
 </body>

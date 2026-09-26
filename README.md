@@ -64,10 +64,10 @@ Click **Add to Chrome** on the official store page for instant 1-click install a
 ### Method 2: Install from Release ZIP (Direct Release)
 
 1. **Download the latest release ZIP:**
-   👉 [**Download zenfeed-v1.1.0.zip (Direct 1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.1.0.zip) or browse all versions at [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
+   👉 [**Download zenfeed-v1.2.0.zip (Direct 1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.2.0.zip) or browse all versions at [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
 2. **Extract the ZIP file:**
-   Unzip `zenfeed-v1.1.0.zip` to a folder on your computer (e.g. `Downloads/zenfeed-v1.1.0`).
-   > 💡 **Important:** Make sure to extract the archive fully (on Windows: right-click `zenfeed-v1.1.0.zip` → **Extract All...**). When loading the extension, choose the directory that directly contains `manifest.json`.
+   Unzip `zenfeed-v1.2.0.zip` to a folder on your computer (e.g. `Downloads/zenfeed-v1.2.0`).
+   > 💡 **Important:** Make sure to extract the archive fully (on Windows: right-click `zenfeed-v1.2.0.zip` → **Extract All...**). When loading the extension, choose the directory that directly contains `manifest.json`.
 3. **Open Chrome Extensions Manager:**
    In Chrome, Edge, Brave, or Cốc Cốc, navigate to:
    ```text
@@ -103,14 +103,17 @@ Then follow steps 3–6 above, selecting the cloned `jev-zenfeed` directory.
 ## ⚙️ Configuration
 
 1. Click the **ZenFeed** icon in your browser toolbar to open the settings popup.
-2. Enter your **TypeSafe Jev API Key** in the API Key field.
-   *(Optional: If using a custom proxy or Vercel AI Gateway, click "Custom Endpoint" to set your URL).*
+2. Leave **OpenRouter** selected (recommended). Create a key at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), paste the `sk-or-…` key, and allow access to openrouter.ai when Chrome asks.
+   If you already have a TypeSafe key, choose **TypeSafe** instead.
+   *(Optional: click "Customize Endpoint" for a proxy or a local mock server).*
 3. Click **⚡ Test Connection** to verify your API key works.
 4. Select a pre-configured Preset or type your custom filter criteria in plain natural language:
    - *Example Criteria:* `"online gambling, casino ads, loan sharks, gossip drama, cryptocurrency scams"`
    - *Optional Whitelist:* `"tech news, AI, software engineering, scientific discoveries"`
 5. Set your confidence threshold (default: **70%**).
 6. Click **Apply** (or press `Ctrl` / `Cmd` + `Enter`). The settings immediately apply to all open Facebook and Threads tabs!
+
+**Per-platform policies:** the **Common · Facebook · Threads** bar under the header switch picks what the form edits. Both platforms start on **Common**; click **Customize this platform** to give just Facebook or Threads its own copy of the policy (switch, criteria, threshold, display mode…), or **Use Common again** to discard it. Your API key and interface language stay shared.
 
 ---
 
@@ -174,7 +177,7 @@ npm test
 # Run syntax lint checks across all scripts
 npm run lint
 
-# Package release ZIP archive (outputs to dist/zenfeed-v1.1.0.zip)
+# Package release ZIP archive (outputs to dist/zenfeed-v1.2.0.zip)
 npm run build:zip
 
 # Start browser-based DOM test harness

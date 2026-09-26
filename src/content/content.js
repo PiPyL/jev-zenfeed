@@ -21,7 +21,12 @@
   if (!JevFB || JevFB.__contentLoaded) return; // guard against double injection
   JevFB.__contentLoaded = true;
 
-  const { DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, criteriaFingerprint } = JevFB;
+  const { DEFAULT_SETTINGS, PUBLIC_SETTING_KEYS, criteriaTopics, criteriaFingerprint, resolvePlatformSettings } = JevFB;
+
+  // Which policy this tab obeys. The manifest injects this same file into
+  // Facebook and Threads; the host name is the only difference that matters
+  // here ("Chung · Facebook · Threads" scope bar, see settings-defaults.js).
+  const PLATFORM = /(^|\.)threads\.(com|net)$/i.test(location.hostname) ? 'threads' : 'facebook';
 
   function pickPublic(source) {
     const out = {};
@@ -29,8 +34,10 @@
     return out;
   }
 
-  // Active configuration state (public keys only)
-  let config = pickPublic(DEFAULT_SETTINGS);
+  // Shared storage values (public keys only) + the effective policy for THIS
+  // platform: identical to rawConfig until the user customizes the platform.
+  let rawConfig = pickPublic(DEFAULT_SETTINGS);
+  let config = resolvePlatformSettings(rawConfig, PLATFORM);
 
   let isEngineInitialized = false;
   let viewportObserver = null;
@@ -127,6 +134,9 @@
    */
   let decisionKeyCache = null;
   let criteriaHashCache = null;
+  // Bumps when the API key or endpoint changes. The tab never sees the URL,
+  // so this is how an in-flight verdict from the previous model is rejected.
+  let endpointEpoch = 0;
   function currentCriteriaHash() {
     if (criteriaHashCache === null) {
       criteriaHashCache = JevFB.fastHash(criteriaFingerprint(config.filterCriteria, config.whitelistCriteria));
@@ -134,7 +144,9 @@
     return criteriaHashCache;
   }
   function currentDecisionKey() {
-    if (decisionKeyCache === null) decisionKeyCache = `${currentCriteriaHash()}|${config.confidenceThreshold}`;
+    if (decisionKeyCache === null) {
+      decisionKeyCache = `${currentCriteriaHash()}|${config.confidenceThreshold}|e${endpointEpoch}`;
+    }
     return decisionKeyCache;
   }
   function invalidateKeys() { decisionKeyCache = null; criteriaHashCache = null; }
@@ -149,8 +161,10 @@
   /** Warm the local cache with the worker's most recent verdicts for the current criteria. */
   function preloadHotDecisions() {
     const wanted = currentCriteriaHash();
+    const epoch = endpointEpoch;
     try {
       chrome.runtime.sendMessage({ action: 'GET_HOT_DECISIONS' }).then((res) => {
+        if (epoch !== endpointEpoch) return;
         if (!res || res.criteriaHash !== wanted || currentCriteriaHash() !== wanted || !Array.isArray(res.entries)) return;
         // oldest first so the newest end up most recent in the LRU order
         for (let i = res.entries.length - 1; i >= 0; i--) {
@@ -257,9 +271,14 @@
     } catch (_) {}
   };
 
-  // 1. Load initial configuration (public keys only)
+  // 1. Load initial configuration (public keys only, resolved for this platform)
   chrome.storage.local.get(pickPublic(DEFAULT_SETTINGS), (stored) => {
-    config = pickPublic(stored);
+    rawConfig = pickPublic(stored);
+    // A resolved COPY, never the raw object itself: resolvePlatformSettings
+    // returns rawConfig unchanged when the platform follows Chung, and the
+    // change handler below mutates rawConfig in place — an alias here would
+    // make applyConfigChange(prev) compare the object with itself.
+    config = { ...resolvePlatformSettings(rawConfig, PLATFORM) };
     invalidateKeys();
     if (config.extensionEnabled) initEngine();
   });
@@ -271,10 +290,9 @@
 
     const prev = config;
     let publicChanged = false;
-    const next = { ...config };
     PUBLIC_SETTING_KEYS.forEach(k => {
       if (k in changes) {
-        next[k] = changes[k].newValue ?? DEFAULT_SETTINGS[k];
+        rawConfig[k] = changes[k].newValue ?? DEFAULT_SETTINGS[k];
         publicChanged = true;
       }
     });
@@ -283,15 +301,25 @@
     const credentialsChanged = 'apiKey' in changes || 'apiUrl' in changes;
 
     if (publicChanged) {
-      config = next;
+      config = { ...resolvePlatformSettings(rawConfig, PLATFORM) };
       invalidateKeys();
       applyConfigChange(prev);
-    } else if (credentialsChanged && config.extensionEnabled && isEngineInitialized) {
-      tracked.forEach(el => {
-        const st = postState.get(el);
-        if (st) { st.skippedKey = undefined; st.retryAt = 0; st.errCount = 0; }
-      });
-      refreshVisible();
+    }
+    if (credentialsChanged) {
+      // Local verdicts are keyed by criteria only. Drop them, and move the
+      // decision key, so an in-flight answer from the previous endpoint is
+      // not written back as if it belonged to the new one.
+      endpointEpoch += 1;
+      invalidateKeys();
+      localCache.clear();
+      if (config.extensionEnabled && isEngineInitialized) {
+        tracked.forEach(el => {
+          const st = postState.get(el);
+          if (st) { st.skippedKey = undefined; st.retryAt = 0; st.errCount = 0; }
+        });
+        preloadHotDecisions();
+        refreshVisible();
+      }
     }
   });
 

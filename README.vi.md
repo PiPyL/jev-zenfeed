@@ -66,10 +66,10 @@ Chỉ cần bấm **Thêm vào Chrome (Add to Chrome)** trên trang cửa hàng 
 Đây là cách nhanh nhất và tiện lợi nhất cho mọi người dùng:
 
 1. **Tải file ZIP phát hành mới nhất:**
-   👉 [**Tải trực tiếp zenfeed-v1.1.0.zip (1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.1.0.zip) hoặc xem các bản phát hành tại [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
+   👉 [**Tải trực tiếp zenfeed-v1.2.0.zip (1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.2.0.zip) hoặc xem các bản phát hành tại [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
 2. **Giải nén file ZIP:**
-   Giải nén file `zenfeed-v1.1.0.zip` vào một thư mục trên máy tính của bạn (ví dụ: `Downloads/zenfeed-v1.1.0`).
-   > 💡 **Lưu ý quan trọng:** Hãy giải nén toàn bộ thư mục (trên Windows: click chuột phải vào file `zenfeed-v1.1.0.zip` → chọn **Extract All...**). Khi tải tiện ích, chọn đúng thư mục chứa trực tiếp file `manifest.json`.
+   Giải nén file `zenfeed-v1.2.0.zip` vào một thư mục trên máy tính của bạn (ví dụ: `Downloads/zenfeed-v1.2.0`).
+   > 💡 **Lưu ý quan trọng:** Hãy giải nén toàn bộ thư mục (trên Windows: click chuột phải vào file `zenfeed-v1.2.0.zip` → chọn **Extract All...**). Khi tải tiện ích, chọn đúng thư mục chứa trực tiếp file `manifest.json`.
 3. **Mở trang quản lý tiện ích trình duyệt:**
    Trên Chrome, Edge, Cốc Cốc hoặc Brave, nhập vào thanh địa chỉ:
    ```text
@@ -105,14 +105,17 @@ Sau đó làm theo các bước 3–6 ở trên, chọn thư mục dự án `jev
 ## ⚙️ Cấu Hình & Sử Dụng
 
 1. Bấm vào biểu tượng **ZenFeed** trên thanh công cụ để mở Popup cài đặt.
-2. Nhập **TypeSafe Jev API Key** của bạn vào ô API Key.
-   *(Tùy chọn: Nếu dùng proxy riêng hoặc Vercel AI Gateway, bấm "Tùy chỉnh Endpoint" để thay đổi URL).*
+2. Giữ **OpenRouter** (nên dùng). Tạo key tại [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), dán key `sk-or-…`, và cho phép truy cập openrouter.ai khi Chrome hỏi.
+   Nếu bạn đã có key TypeSafe, chọn **TypeSafe**.
+   *(Tùy chọn: bấm "Tùy chỉnh Endpoint" nếu dùng proxy hoặc mock server trên máy).*
 3. Bấm nút **⚡ Kiểm tra kết nối** để xác nhận API hoạt động bình thường.
 4. Chọn một Preset có sẵn hoặc tự gõ tiêu chí bằng ngôn ngữ tự nhiên:
    - *Ví dụ tiêu chí lọc:* `"cờ bạc trực tuyến, cá độ bóng đá, tài xỉu, vay tiền online, bóc phốt showbiz"`
    - *Ngoại lệ Whitelist (nếu muốn giữ lại):* `"tin tức công nghệ, lập trình viên, trí tuệ nhân tạo, tuyển dụng IT"`
 5. Điều chỉnh ngưỡng độ tin cậy mong muốn (mặc định: **70%**).
 6. Bấm **Áp dụng** (hoặc nhấn tổ hợp phím `Ctrl` / `Cmd` + `Enter`). Cài đặt sẽ được áp dụng ngay lập tức trên các tab Facebook và Threads đang mở!
+
+**Chính sách theo nền tảng:** thanh **Chung · Facebook · Threads** dưới công tắc đầu trang chọn form đang sửa. Cả hai nền tảng bắt đầu theo **Chung**; bấm **Tùy chỉnh nền tảng này** để Facebook hoặc Threads có bản sao chính sách riêng (công tắc, tiêu chí, ngưỡng, kiểu hiển thị…), hoặc **Dùng lại Chung** để xóa bản sao. API key và ngôn ngữ giao diện luôn dùng chung.
 
 ---
 
@@ -174,7 +177,7 @@ npm test
 # Kiểm tra cú pháp toàn bộ file nguồn
 npm run lint
 
-# Đóng gói tiện ích thành file zip sẵn sàng cài đặt (xuất ra dist/zenfeed-v1.1.0.zip)
+# Đóng gói tiện ích thành file zip sẵn sàng cài đặt (xuất ra dist/zenfeed-v1.2.0.zip)
 npm run build:zip
 
 # Khởi chạy server kiểm thử giao diện DOM trên trình duyệt
