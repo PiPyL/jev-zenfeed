@@ -1,8 +1,9 @@
 # Chrome Web Store Listing — ZenFeed
 
-> Last Updated: 2026-09-23
-> Version: 1.0.1
-> Extension ID: Pending Chrome Web Store upload
+> Last Updated: 2026-09-26
+> Version: 1.1.0
+> Extension ID: jjnemjiljlfjafaifoajihdiehedlibk
+> Store URL: https://chromewebstore.google.com/detail/zenfeed/jjnemjiljlfjafaifoajihdiehedlibk
 
 ---
 

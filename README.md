@@ -53,7 +53,15 @@ Powered by the **Jev (TypeSafe AI)** System One architecture, ZenFeed delivers s
 
 ## 🚀 Quick Install Guide
 
-### Method 1: Install from Release ZIP (Recommended)
+### Method 1: Install from Chrome Web Store (Recommended 1-Click)
+
+👉 [**Add ZenFeed to Chrome (Official Chrome Web Store)**](https://chromewebstore.google.com/detail/zenfeed/jjnemjiljlfjafaifoajihdiehedlibk)
+
+Click **Add to Chrome** on the official store page for instant 1-click install and automatic background updates.
+
+---
+
+### Method 2: Install from Release ZIP (Direct Release)
 
 1. **Download the latest release ZIP:**
    👉 [**Download zenfeed-v1.1.0.zip (Direct 1-Click)**](https://github.com/PiPyL/jev-zenfeed/releases/latest/download/zenfeed-v1.1.0.zip) or browse all versions at [**ZenFeed Releases**](https://github.com/PiPyL/jev-zenfeed/releases/latest).
@@ -74,7 +82,7 @@ Powered by the **Jev (TypeSafe AI)** System One architecture, ZenFeed delivers s
 
 ---
 
-### Method 2: Install from Source (For Developers)
+### Method 3: Install from Source (For Developers)
 
 ```bash
 # Clone the repository

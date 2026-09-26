@@ -53,7 +53,15 @@
 
 ## 🚀 Hướng Dẫn Cài Đặt Nhanh
 
-### Cách 1: Cài bằng File ZIP từ GitHub Releases (Khuyên Dùng)
+### Cách 1: Cài Đặt Từ Chrome Web Store (Khuyên Dùng · 1 Click)
+
+👉 [**Thêm ZenFeed vào Chrome (Cửa hàng Chrome Web Store chính thức)**](https://chromewebstore.google.com/detail/zenfeed/jjnemjiljlfjafaifoajihdiehedlibk)
+
+Chỉ cần bấm **Thêm vào Chrome (Add to Chrome)** trên trang cửa hàng để cài đặt nhanh chóng và tự động nhận các bản cập nhật mới nhất.
+
+---
+
+### Cách 2: Cài bằng File ZIP từ GitHub Releases (Bản Trực Tiếp)
 
 Đây là cách nhanh nhất và tiện lợi nhất cho mọi người dùng:
 
@@ -76,7 +84,7 @@
 
 ---
 
-### Cách 2: Cài Đặt Từ Mã Nguồn (Dành Cho Lập Trình Viên)
+### Cách 3: Cài Đặt Từ Mã Nguồn (Dành Cho Lập Trình Viên)
 
 ```bash
 # Clone repository về máy
