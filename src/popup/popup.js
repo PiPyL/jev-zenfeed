@@ -845,7 +845,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       showApiError(t('errPermissionNeeded', { host: u.hostname }));
       return;
     }
-    if (await save({ apiUrl: url }, t('toastEndpointSaved'))) savedApiUrl = url;
+    // The key belongs to its endpoint's slot: park the visible key under the
+    // endpoint being left, show the new endpoint's own key, and save both
+    // together — otherwise a key saved for another provider would be sent to this host.
+    rememberFieldKey(savedApiUrl);
+    showKeyFor(url);
+    const payload = keyPayload(url);
+    if (await save(payload, t('toastEndpointSaved'))) {
+      savedApiUrl = url;
+      savedApiKey = payload.apiKey;
+    }
+    const shown = apiKeyInput.value.trim();
+    setApiBadge(shown ? 'badgeUntested' : 'badgeNotEntered', shown ? 'badge badge-untested' : 'badge badge-error');
     applyI18n();
   });
 

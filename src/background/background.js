@@ -15,7 +15,7 @@ import '../utils/i18n.js'; // F18: side-effect import registers self.__jevI18n
 
 const simpleHash = self.__jevFastHash;
 const { DEFAULT_SETTINGS, filterTopics, criteriaFingerprint, resolvePlatformSettings } = self.__jevDefaults;
-const { legacyEndpointMigration, decisionCacheSuffix } = self.__jevProviders;
+const { legacyEndpointMigration, decisionCacheSuffix, keySlot, normalizeKeyMap } = self.__jevProviders;
 const { t: i18nT } = self.__jevI18n;
 
 // Which policy a content-script message obeys. Both platforms share this
@@ -53,11 +53,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
   }
   if (!changed) return;
-  if ('apiKey' in changes || 'apiUrl' in changes) apiFailing = false; // new endpoint: give it a chance
+  if ('apiKey' in changes || 'apiUrl' in changes || 'apiKeysByProvider' in changes) apiFailing = false; // new endpoint: give it a chance
   updateHealth();
 });
 
-const hasKey = (config = settings) => !!(config.apiKey && config.apiKey.trim());
+/**
+ * The key for the ACTIVE endpoint. The top-level `apiKey` can be stale after an
+ * endpoint switch, so it is only a legacy fallback (normalizeKeyMap); a slot that
+ * was saved empty stays empty and a key is never sent to another provider's host.
+ */
+const activeApiKey = (config = settings) => normalizeKeyMap(config.apiKeysByProvider, config.apiKey, config.apiUrl)[keySlot(config.apiUrl)];
+const hasKey = (config = settings) => !!activeApiKey(config);
 const hasCriteria = (config = settings) => filterTopics(config.filterCriteria).length > 0;
 
 // ==================== TOOLBAR BADGE ====================
@@ -515,7 +521,7 @@ async function handleBatchEvaluation(items, onPartial = null, platform = 'facebo
         return sending.map(it => ({ id: it.id, error: true }));
       }
       const startedAt = Date.now();
-      return evaluateWithJev(config.apiKey, config.apiUrl, sending, config.filterCriteria, threshold, config.whitelistCriteria)
+      return evaluateWithJev(activeApiKey(config), config.apiUrl, sending, config.filterCriteria, threshold, config.whitelistCriteria)
         .then((results) => {
           logApiBatch(results, sending, threshold, Date.now() - startedAt);
           // Cooldown only for a whole-call failure (network/HTTP). A single

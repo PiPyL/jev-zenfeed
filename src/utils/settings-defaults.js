@@ -15,6 +15,10 @@
     apiKey: '',
     // Must match the openrouter record in providers.js. Tests lock the two strings.
     apiUrl: 'https://openrouter.ai/api/v1',
+    // Per-provider key slots ({ openrouter, typesafe, custom }, see providers.js).
+    // The worker sends the key of the slot that matches apiUrl — never a key
+    // saved for another provider. Credentials: never in PUBLIC_SETTING_KEYS.
+    apiKeysByProvider: Object.freeze({}),
     filterCriteria: 'Gambling ads, sports betting, card games for money, fast cash loans, plot spoilers for movies and series, celebrity gossip and toxic clickbait, crypto investment pitches, junk meme coins, get-rich-quick schemes, houses for sale, rentals, apartments for rent',
     whitelistCriteria: '',
     confidenceThreshold: 70,

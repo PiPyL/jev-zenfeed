@@ -11,9 +11,9 @@
 
 **Extension Name** [REQUIRED]
 ```
-ZenFeed - AI Content Filter for Social Feeds
+ZenFeed - AI Social Feed Filter
 ```
-*(Số ký tự: 44/75. Không dùng trực diện tên thương hiệu Facebook để tránh vi phạm Trademark Policy).*
+*(Số ký tự: 33/75. Tối ưu SEO, CTR cao, không dùng trực diện tên thương hiệu Facebook để tránh vi phạm Trademark Policy).*
 
 **Short Description** [REQUIRED]
 ```

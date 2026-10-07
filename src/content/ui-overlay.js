@@ -58,6 +58,10 @@ window.JevFB = window.JevFB || {};
       }, { rootMargin: '150px' })
     : null;
 
+  // Our own isolation is tagged `data-jev-isolated` so text extraction can keep
+  // reading a blurred post (it still skips aria-hidden content the PAGE set —
+  // icons, duplicated text). Without the tag, blur made the extractor blind:
+  // the post was never re-evaluated and a recycled node stayed blurred forever.
   function isolateBlurredContent(postEl) {
     let saved = hiddenContentState.get(postEl);
     if (!saved) {
@@ -66,12 +70,11 @@ window.JevFB = window.JevFB || {};
     }
     for (const child of postEl.children) {
       if (child.classList.contains('jev-ui') || saved.has(child)) continue;
-      saved.set(child, {
-        inert: child.inert,
-        ariaHidden: child.getAttribute('aria-hidden')
-      });
+      const ariaHidden = child.getAttribute('aria-hidden');
+      saved.set(child, { inert: child.inert, ariaHidden });
       child.inert = true;
       child.setAttribute('aria-hidden', 'true');
+      if (ariaHidden !== 'true') child.setAttribute('data-jev-isolated', '');
     }
   }
 
@@ -80,6 +83,7 @@ window.JevFB = window.JevFB || {};
     if (!saved) return;
     saved.forEach((state, child) => {
       child.inert = state.inert;
+      child.removeAttribute('data-jev-isolated');
       if (state.ariaHidden === null) child.removeAttribute('aria-hidden');
       else child.setAttribute('aria-hidden', state.ariaHidden);
     });

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "ZenFeed",
+  "name": "ZenFeed - AI Social Feed Filter",
   "version": "1.2.0",
   "default_locale": "en",
   "homepage_url": "https://github.com/PiPyL/jev-zenfeed",

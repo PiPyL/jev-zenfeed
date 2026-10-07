@@ -309,7 +309,7 @@ export async function evaluateWithJev(apiKey, apiUrl, items, criteria, threshold
   const errorResults = () => items.map(it => ({ id: it.id, shouldHide: false, confidence: 0, error: true }));
   if (!apiKey) return errorResults();
 
-  const endpoint = getEndpoint(apiUrl, 'systemone');
+  const endpoint = decisionsEndpoint(apiUrl);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 

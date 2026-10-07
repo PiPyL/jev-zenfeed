@@ -591,6 +591,50 @@
       check('Không còn hoãn ẩn: không có UX_METRIC "deferred" nào được báo',
         !uxMetrics.some(m => m.deferred > 0), JSON.stringify(uxMetrics));
 
+      // --- H1 regression: Facebook recycles a node while its request is in flight ---
+      // evaluatePost() returns early while a post is pending, so the identity check
+      // never runs; the stale verdict used to be applied to the NEW content and stick.
+      const feedH1 = document.querySelector('[role="feed"]');
+      let releaseH1;
+      heldBatches = new Promise((resolve) => { releaseH1 = resolve; });
+      const recycled = document.createElement('div');
+      recycled.id = 'RECYCLE_H1';
+      recycled.innerHTML = postHTML({ author: 'Nhà cái R', body: 'Kèo cá độ bóng đá RECYCLE_OLD' });
+      feedH1.appendChild(recycled);
+      await waitFor(() => calls.some((batch) => batch.some((item) => String(item.text || '').includes('RECYCLE_OLD'))));
+      // FB swaps a DIFFERENT, innocent post into the same node while the batch is held
+      recycled.innerHTML = postHTML({ author: 'Bạn Hạnh', body: 'Chiều nay đi dạo hồ Tây rất vui RECYCLE_NEW' });
+      await sleep(250);
+      releaseH1();
+      heldBatches = null;
+      await waitFor(() => status('RECYCLE_H1') === 'safe', 4000);
+      check('H1: verdict của bài cũ KHÔNG được áp lên nội dung mới của node bị tái sử dụng',
+        status('RECYCLE_H1') === 'safe' && !isCollapsed('RECYCLE_H1') && !bannerOf('RECYCLE_H1'),
+        `status=${status('RECYCLE_H1')} collapsed=${isCollapsed('RECYCLE_H1')}`);
+
+      // --- H2 regression: a blurred post must stay readable by the extractor ---
+      // Blur isolates every child with aria-hidden; the extractor used to skip all
+      // aria-hidden content, so a blurred post was never re-evaluated again.
+      await chrome.storage.local.set({ hideMode: 'blur', blurPreset: 'classic', filterCriteria: 'cá độ' });
+      await sleep(300);
+      const blurTarget = document.createElement('div');
+      blurTarget.id = 'BLUR_H2';
+      blurTarget.innerHTML = postHTML({ author: 'Nhà cái B', body: 'Kèo cá độ bóng đá BLUR_H2_TEXT' });
+      feedH1.appendChild(blurTarget);
+      await waitFor(() => blurTarget.classList.contains('jev-blurred-post'), 4000);
+      check('H2: bài vi phạm được blur', blurTarget.classList.contains('jev-blurred-post'), String(status('BLUR_H2')));
+      const extractedWhileBlurred = window.JevFB.extractPostData(blurTarget);
+      check('H2: extractor vẫn đọc được nội dung của bài đang blur',
+        extractedWhileBlurred && !extractedWhileBlurred.notReady && extractedWhileBlurred.text.includes('BLUR_H2_TEXT'),
+        JSON.stringify(extractedWhileBlurred));
+      await chrome.storage.local.set({ filterCriteria: 'công viên' });
+      await waitFor(() => status('BLUR_H2') === 'safe' && !blurTarget.classList.contains('jev-blurred-post'), 4000);
+      check('H2: đổi tiêu chí => bài đang blur được đánh giá lại và hiện ra',
+        status('BLUR_H2') === 'safe' && !blurTarget.classList.contains('jev-blurred-post'),
+        `status=${status('BLUR_H2')} blurred=${blurTarget.classList.contains('jev-blurred-post')}`);
+      await chrome.storage.local.set({ hideMode: 'banner', filterCriteria: 'cá độ' });
+      await sleep(600);
+
       // --- Regression: extension reloaded while a batch is still pending ---
       // The orphaned content script must shut down silently: no API call, no
       // A batch that left before the endpoint changed must not be stored as
