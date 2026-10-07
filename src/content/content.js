@@ -543,6 +543,33 @@
   }
 
   /**
+   * Facebook recycled this DOM node for a DIFFERENT post: drop everything we
+   * showed for the old one and start from a clean state.
+   * @param {HTMLElement} postEl
+   * @returns {object} the fresh per-post state
+   */
+  function resetRecycledPost(postEl) {
+    JevFB.unhidePost(postEl);
+    delete postEl.dataset.jevStatus;
+    delete postEl.dataset.jevHideMode;
+    postState.delete(postEl);
+    return getState(postEl);
+  }
+
+  /**
+   * True when the element now shows a DIFFERENT post than `sent` (the data a
+   * pending request was extracted from). An unreadable element (still rendering)
+   * is NOT treated as recycled — we cannot tell, so the verdict stays valid.
+   * @param {HTMLElement} postEl
+   * @param {{author: string, head: string}} sent
+   */
+  function postWasRecycled(postEl, sent) {
+    const now = JevFB.extractPostData(postEl);
+    if (!now || now.notReady) return false;
+    return !JevFB.isSamePost({ author: sent.author, head: sent.head }, now);
+  }
+
+  /**
    * Decide whether a post needs (re-)evaluation and queue it.
    * Cheap when nothing changed: same content + same criteria/threshold => no-op.
    * @param {HTMLElement} postEl
@@ -592,11 +619,7 @@
     // F10: Facebook recycled this DOM node for a DIFFERENT post (same author
     // and a body prefix relation = same post, even across "See more").
     if (st.identity && !JevFB.isSamePost(st.identity, postData)) {
-      JevFB.unhidePost(postEl);
-      delete postEl.dataset.jevStatus;
-      delete postEl.dataset.jevHideMode;
-      postState.delete(postEl);
-      st = getState(postEl);
+      st = resetRecycledPost(postEl);
     }
     st.identity = { author: postData.author, head: postData.head };
 
@@ -891,17 +914,31 @@
       return;
     }
 
-    st.hash = candidate.data.hash;
-    st.textLen = candidate.data.text.length;
-    st.decidedKey = key;
-    st.decision = decision;
-    if (!fromLocal && typeof decision.violation === 'boolean') {
+    // The verdict is for the content that was SENT. evaluatePost() returns early
+    // while a post is pending, so a node Facebook recycled for a different post
+    // during the request never went through its identity check: applying the
+    // verdict here would hide/spare the NEW post and make `sig` match, so nothing
+    // would ever correct it. Local-cache decisions are synchronous (nothing to recycle).
+    const rememberVerdict = () => {
+      if (fromLocal || typeof decision.violation !== 'boolean') return;
       const raw = { violation: decision.violation, confidence: decision.confidence };
       if (Number.isFinite(decision.whitelistConfidence)) raw.whitelistConfidence = decision.whitelistConfidence;
       if (decision.reason) raw.reason = decision.reason;
       if (decision.user) raw.user = true;
       rememberRaw(candidate.data.hash, raw);
+    };
+    if (!fromLocal && postWasRecycled(el, candidate.data)) {
+      rememberVerdict(); // still the right answer for the OLD content (keyed by its hash)
+      resetRecycledPost(el);
+      evaluatePost(el);
+      return;
     }
+
+    st.hash = candidate.data.hash;
+    st.textLen = candidate.data.text.length;
+    st.decidedKey = key;
+    st.decision = decision;
+    rememberVerdict();
 
     if (decision.shouldHide) {
       applyHideDecision(el, st);

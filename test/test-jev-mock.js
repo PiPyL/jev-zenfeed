@@ -328,6 +328,32 @@ try {
 }
 ok('Registry provider: model, probe, migration, cache suffix, i18n, và OpenRouter không xin quyền lúc cài.');
 
+// 3b. C1 regression: the REAL classification call must hit the provider's decisions URL
+// (OpenRouter has no /v1/systemone route); testApiKey alone passing is not enough.
+{
+  const realFetch = globalThis.fetch;
+  try {
+    const calls = [];
+    globalThis.fetch = async (url, opts) => {
+      calls.push({ url: String(url), body: JSON.parse(opts.body) });
+      return new Response(JSON.stringify({ answers: { p1: { type: 'noul', noul: 0.9 } } }), { status: 200 });
+    };
+    const viaOpenRouter = await evaluateWithJev('sk-or-test', openrouterProvider.apiUrl, [{ id: 'p1', text: 'cá độ' }], 'cá độ', 70);
+    assert.deepStrictEqual(calls.map((c) => c.url), [openrouterProvider.decisionsUrl],
+      'Phân loại qua OpenRouter phải gọi /api/alpha/decisions, không phải /v1/systemone');
+    assert.strictEqual(calls[0].body.model, openrouterProvider.model);
+    assert.strictEqual(viaOpenRouter[0].error, undefined, 'Kết quả hợp lệ không được thành error');
+    assert.strictEqual(viaOpenRouter[0].shouldHide, true);
+
+    calls.length = 0;
+    await evaluateWithJev('jev_key_123456', typesafeProvider.apiUrl, [{ id: 'p1', text: 'cá độ' }], 'cá độ', 70);
+    assert.deepStrictEqual(calls.map((c) => c.url), ['https://api.typesafe.ai/v1/systemone'], 'TypeSafe giữ nguyên /v1/systemone');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+ok('[C1] evaluateWithJev dùng đúng endpoint quyết định của từng provider (OpenRouter /api/alpha/decisions, TypeSafe /v1/systemone).');
+
 // 4. Endpoint normalization
 assert.strictEqual(getEndpoint('https://api.typesafe.ai/v1', 'models'), 'https://api.typesafe.ai/v1/models');
 assert.strictEqual(getEndpoint('https://api.typesafe.ai', 'models'), 'https://api.typesafe.ai/v1/models');
@@ -537,6 +563,42 @@ try {
   assert.strictEqual(res[0].skipped, true);
   await fake.chrome.storage.local.set({ apiKey: 'mock_jev_test_key_local' });
   ok('[Background] Chưa có API key => skipped (không cache, sẽ kiểm tra lại).');
+
+  // 19b. H3 regression: endpoint switched by hand leaves a stale top-level apiKey.
+  // The worker must use the ACTIVE endpoint's slot, never another provider's key.
+  {
+    const realFetch = globalThis.fetch;
+    const sent = [];
+    globalThis.fetch = async (url, opts) => {
+      sent.push({ url: String(url), auth: opts.headers.Authorization });
+      return new Response(JSON.stringify({ answers: { h3a: { type: 'noul', noul: 0.9 } } }), { status: 200 });
+    };
+    try {
+      await fake.chrome.storage.local.set({
+        apiUrl: 'https://api.typesafe.ai/v1',
+        apiKey: 'sk-or-secret-openrouter',
+        apiKeysByProvider: { openrouter: 'sk-or-secret-openrouter', typesafe: '', custom: '' }
+      });
+      res = await evaluate([{ id: 'h3a', hash: 'h_h3_stale', text: BAD }]);
+      assert.strictEqual(res[0].skipped, true, 'Slot TypeSafe rỗng => không có key, không được dùng key OpenRouter');
+      assert.deepStrictEqual(sent, [], 'Key OpenRouter KHÔNG được gửi tới host TypeSafe');
+
+      await fake.chrome.storage.local.set({
+        apiKeysByProvider: { openrouter: 'sk-or-secret-openrouter', typesafe: 'jev_typesafe_key_1', custom: '' }
+      });
+      // Test 17 left a 10s API cooldown; a successful key probe clears it (production behavior).
+      await fake.send({ action: 'TEST_API_KEY', apiKey: 'probe_key_123456', apiUrl: 'https://api.typesafe.ai/v1' }, { id: 'test-extension' });
+      sent.length = 0;
+      res = await evaluate([{ id: 'h3a', hash: 'h_h3_ok', text: BAD }]);
+      assert.strictEqual(res[0].error, undefined);
+      assert.deepStrictEqual(sent.map(s => [s.url, s.auth]),
+        [['https://api.typesafe.ai/v1/systemone', 'Bearer jev_typesafe_key_1']], 'Dùng đúng key của slot TypeSafe');
+    } finally {
+      globalThis.fetch = realFetch;
+      await fake.chrome.storage.local.set({ apiUrl: BASE, apiKey: 'mock_jev_test_key_local', apiKeysByProvider: {} });
+    }
+  }
+  ok('[H3] Worker chọn key theo slot của endpoint đang dùng; key provider khác không bao giờ bị gửi sang host này.');
 
   // 20. Criteria re-ordering keeps the cache (normalized fingerprint)
   const sBefore = (await mockStats()).systemoneRequests;

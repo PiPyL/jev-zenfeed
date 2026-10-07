@@ -65,7 +65,7 @@ window.JevFB = window.JevFB || {};
       if (child.nodeType === Node.TEXT_NODE) {
         out += child.nodeValue || '';
       } else if (child.nodeType === Node.ELEMENT_NODE) {
-        if (child.closest('.jev-ui, svg, time, [role="button"], [aria-hidden="true"]')) continue;
+        if (child.closest('.jev-ui, svg, time, [role="button"], [aria-hidden="true"]:not([data-jev-isolated])')) continue;
         out += collectText(child);
       }
     }
@@ -182,7 +182,7 @@ window.JevFB = window.JevFB || {};
     for (const img of postEl.querySelectorAll('img[alt]')) {
       const alt = (img.getAttribute('alt') || '').trim();
       if (!alt || alt.length < 4 || AVATAR_ALT.test(alt)) continue;
-      if (img.closest('.jev-ui, [aria-hidden="true"]')) continue;
+      if (img.closest('.jev-ui, [aria-hidden="true"]:not([data-jev-isolated])')) continue;
       push('[Image:]', alt.slice(0, 150));
     }
 

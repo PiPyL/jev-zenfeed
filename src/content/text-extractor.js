@@ -37,7 +37,9 @@ window.JevFB = window.JevFB || {};
    * @param {Element} postEl
    */
   function isExcluded(node, postEl) {
-    if (node.closest('.jev-ui, form, [role="toolbar"], [role="menu"], [aria-hidden="true"]')) return true;
+    // `[aria-hidden]:not([data-jev-isolated])`: skip what the PAGE hid, but keep
+    // reading content that only OUR blur isolation hid (see ui-overlay.js).
+    if (node.closest('.jev-ui, form, [role="toolbar"], [role="menu"], [aria-hidden="true"]:not([data-jev-isolated])')) return true;
 
     // Comments are rendered as nested role="article" blocks (usually inside
     // ul/li). Native closest() keeps this O(depth) in C++ instead of a JS walk.
