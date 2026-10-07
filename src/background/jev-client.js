@@ -309,6 +309,7 @@ export async function evaluateWithJev(apiKey, apiUrl, items, criteria, threshold
   const errorResults = () => items.map(it => ({ id: it.id, shouldHide: false, confidence: 0, error: true }));
   if (!apiKey) return errorResults();
 
+  // Same target as the key probe: OpenRouter has no /v1/systemone route.
   const endpoint = decisionsEndpoint(apiUrl);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);

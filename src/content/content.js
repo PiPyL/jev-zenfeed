@@ -5,15 +5,14 @@
  *
  * Privacy: this script only reads PUBLIC settings (never the API key).
  *
- * UX review (2026-09): a post confirmed while it is in the reading area stays
- * in place until it leaves. Two independent IntersectionObservers do the work:
- *  - `viewportObserver` — the existing look-ahead/prefetch signal (adaptive
- *    margin, grows with scroll speed) that decides WHEN to ask the AI.
+ * Two independent IntersectionObservers do the work:
+ *  - `viewportObserver` — the look-ahead/prefetch signal (adaptive margin,
+ *    grows with scroll speed) that decides WHEN to ask the AI.
  *  - `readingZoneObserver` — a tighter signal (top ~65% of the viewport,
- *    where the eye actually reads) used only to decide HOW to show a
- *    violation: collapse immediately if the post isn't there, otherwise blur
- *    in place / label quietly and defer the real collapse until it leaves.
- * See `applyHideDecision` for the full decision matrix.
+ *    where the eye actually reads). It makes requests for posts the user can
+ *    see jump the queue (`urgent`, see flushBatch) and tells `collapseNow`
+ *    to fold the post's height smoothly instead of snapping.
+ * A confirmed violation is always hidden at once; see `applyHideDecision`.
  */
 
 (function() {
@@ -526,6 +525,23 @@
     if (st) st.interacted = true;
   }
 
+  /** Threads only: hide `postEl` when it is a reply of a hidden root post. */
+  function cascadeHiddenReply(postEl) {
+    if (typeof JevFB.isReplyOfHiddenPost !== 'function' || !JevFB.isReplyOfHiddenPost(postEl)) return false;
+    postEl.classList.add('jev-reply-hidden');
+    postEl.dataset.jevParentHidden = 'true';
+    postEl.dataset.jevStatus = 'parent_hidden';
+    postEl.style.display = 'none';
+    const container = typeof JevFB.getThreadContainer === 'function' ? JevFB.getThreadContainer(postEl) : null;
+    const wrapper = (postEl.parentElement && postEl.parentElement !== container) ? postEl.parentElement : null;
+    if (wrapper) {
+      wrapper.classList.add('jev-reply-wrapper-hidden');
+      wrapper.dataset.jevParentHidden = 'true';
+      wrapper.style.display = 'none';
+    }
+    return true;
+  }
+
   /**
    * Facebook recycled this DOM node for a DIFFERENT post: drop everything we
    * showed for the old one and start from a clean state.
@@ -561,22 +577,6 @@
   function evaluatePost(postEl) {
     if (!postEl || !postEl.isConnected || !config.extensionEnabled) return;
 
-    // Threads: if this post is a reply of an already-hidden root post, cascade hide immediately
-    if (typeof JevFB.isReplyOfHiddenPost === 'function' && JevFB.isReplyOfHiddenPost(postEl)) {
-      postEl.classList.add('jev-reply-hidden');
-      postEl.dataset.jevParentHidden = 'true';
-      postEl.dataset.jevStatus = 'parent_hidden';
-      postEl.style.display = 'none';
-      const container = typeof JevFB.getThreadContainer === 'function' ? JevFB.getThreadContainer(postEl) : null;
-      const wrapper = (postEl.parentElement && postEl.parentElement !== container) ? postEl.parentElement : null;
-      if (wrapper) {
-        wrapper.classList.add('jev-reply-wrapper-hidden');
-        wrapper.dataset.jevParentHidden = 'true';
-        wrapper.style.display = 'none';
-      }
-      return;
-    }
-
     let st = getState(postEl);
     if (st.pending) return;
 
@@ -595,6 +595,12 @@
     // A dirty flag alone no longer forces re-extraction — the cheap signature
     // decides (noisy mutations like timers/reactions leave it unchanged).
     if (!forced && st.decidedKey === key && st.sig === sig) return;
+
+    // Threads: a reply of an already-hidden root post is hidden with it. Checked
+    // only once the cheap "unchanged and already decided" exit above has not
+    // fired: the lookup walks the thread container, which is too costly to
+    // repeat for every settled post on every re-check.
+    if (cascadeHiddenReply(postEl)) return;
 
     const postData = JevFB.extractPostData(postEl);
 
@@ -616,11 +622,6 @@
       st = resetRecycledPost(postEl);
     }
     st.identity = { author: postData.author, head: postData.head };
-
-    // Brand-new state (first look, or just reset above): derive the reading
-    // zone synchronously instead of waiting for the next crossing event,
-    // which may never come if the recycled node didn't move.
-    if (st.inReadingZone === undefined) syncZoneStateNow(postEl, st);
 
     if (st.decidedKey === key && (st.hash === postData.hash || keepsDecision(st, postData))) {
       st.hash = postData.hash;
@@ -653,6 +654,14 @@
       reportLocalStats(hide);
       return;
     }
+
+    // Brand-new state (first look, or just reset above): derive the reading
+    // zone instead of waiting for the next crossing event, which may never
+    // come if the recycled node didn't move. Only needed to prioritize a real
+    // request, so posts settled from the local cache (decided inside the
+    // MutationObserver task, right after Facebook's DOM write) never pay for
+    // this layout read.
+    if (st.inReadingZone === undefined) syncZoneStateNow(postEl, st);
 
     st.pending = true;
     postEl.dataset.jevStatus = 'analyzing';
@@ -702,8 +711,17 @@
   }
 
   function collapseNow(el, decision) {
+    // Only a banner that replaces a post the user is looking at needs the
+    // fold animation: it is the one case where the feed would visibly jump.
+    // The height read is skipped for everything else (new posts decided in
+    // the insertion task, off-screen posts, blur/remove modes).
+    const st = postState.get(el);
+    const fold = config.hideMode === 'banner' && el.dataset.jevStatus !== 'hidden' &&
+      !!st && st.inReadingZone === true && typeof JevFB.animateCollapse === 'function';
+    const from = fold ? el.offsetHeight : 0;
     JevFB.removeSoftLabel(el);
     JevFB.hidePost(el, decision, hideOpts());
+    if (fold) JevFB.animateCollapse(el, from);
   }
 
   /**
@@ -779,12 +797,12 @@
     batchTimer = setTimeout(flushBatch, BATCH_INTERVAL_MS);
   }
 
-  function sendBatch(payload) {
+  function sendBatch(payload, urgent) {
     // Explicit timer cleanup: inside Promise.race the losing timer would keep
     // firing (and pin its timeout handle) long after a successful response.
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('timeout')), RESPONSE_TIMEOUT_MS);
-      chrome.runtime.sendMessage({ action: 'EVALUATE_BATCH', items: payload }).then(
+      chrome.runtime.sendMessage({ action: 'EVALUATE_BATCH', items: payload, urgent }).then(
         (res) => { clearTimeout(timer); resolve(res); },
         (err) => { clearTimeout(timer); reject(err); }
       );
@@ -822,9 +840,12 @@
     }));
 
     currentBatch.forEach(c => inFlight.set(c.state.uid, c));
+    // Posts the user can see right now jump ahead of look-ahead prefetch in
+    // the worker's API queue too, not only in this tab's batching.
+    const urgent = currentBatch.some(c => c.state.inReadingZone === true);
     let decisions = [];
     try {
-      const res = await sendBatch(payload);
+      const res = await sendBatch(payload, urgent);
       if (Array.isArray(res)) decisions = res;
     } catch (err) {
       // Context died mid-flight (reload between the guard above and the
@@ -858,7 +879,6 @@
   function applyDecision(candidate, decision, fromLocal = false) {
     const { element: el, state: st, key } = candidate;
     st.pending = false;
-    JevFB.clearAnalyzingState(el);
 
     // Element recycled/replaced while the request was in flight
     if (postState.get(el) !== st || !el.isConnected) return;
@@ -940,18 +960,7 @@
     el.dataset.jevStatus = 'safe';
 
     // Threads: if this post is a reply of a hidden root post, it must stay hidden
-    if (typeof JevFB.isReplyOfHiddenPost === 'function' && JevFB.isReplyOfHiddenPost(el)) {
-      el.classList.add('jev-reply-hidden');
-      el.dataset.jevParentHidden = 'true';
-      el.style.display = 'none';
-      const container = typeof JevFB.getThreadContainer === 'function' ? JevFB.getThreadContainer(el) : null;
-      const wrapper = (el.parentElement && el.parentElement !== container) ? el.parentElement : null;
-      if (wrapper) {
-        wrapper.classList.add('jev-reply-wrapper-hidden');
-        wrapper.dataset.jevParentHidden = 'true';
-        wrapper.style.display = 'none';
-      }
-    }
+    if (cascadeHiddenReply(el)) el.dataset.jevStatus = 'safe';
   }
 
   /**
@@ -985,15 +994,6 @@
     if (!st || !st.decision || !st.decision.shouldHide) return;
     st.pendingCollapse = false;
     collapseNow(postEl, st.decision);
-  };
-
-  /** The user tapped "Show now" on the pre-decision waiting blur (strict
-   *  mode): stop waiting, and treat it like any other interaction — this
-   *  post never gets auto-collapsed out from under them for this view. */
-  JevFB.onSkipWait = function(postEl) {
-    const st = postState.get(postEl);
-    if (st) st.interacted = true;
-    JevFB.clearAnalyzingState(postEl);
   };
 
   /**
@@ -1079,8 +1079,17 @@
     inFlight.clear();
   }
 
+  // Past this many distinct pending roots the containment checks below cost
+  // more (O(n²)) than one full scan, so fall back to that.
+  const MAX_PENDING_SCAN_ROOTS = 48;
+
   function addScanRoot(root) {
     if (!root || root.nodeType !== 1 || root.closest('.jev-ui')) return;
+    if (pendingScanRoots.size >= MAX_PENDING_SCAN_ROOTS) {
+      pendingScanRoots.clear();
+      fullScanRequested = true;
+      return;
+    }
     for (const existing of pendingScanRoots) {
       if (existing === root || existing.contains(root)) return;
     }
@@ -1226,6 +1235,10 @@
         if (m.addedNodes) {
           for (const node of m.addedNodes) {
             if (node.nodeType !== 1 || node.closest('.jev-ui')) continue;
+            // Content that appears inside a post we already track (comments,
+            // reactions, lazy media) is a change TO that post, handled by its
+            // dirty flag above, not a new post to look for.
+            if (!node.hasAttribute('data-jev-tracked') && trackedPostFor(node)) continue;
             addScanRoot(node);
             shouldScan = true;
           }

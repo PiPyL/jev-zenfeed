@@ -41,6 +41,13 @@
     const requestedKeys = new Set();
     const calls = [];                 // every EVALUATE_BATCH payload
     const messages = [];              // every other runtime message
+    const urgentFlags = [];           // `urgent` flag of every EVALUATE_BATCH, in order
+    let foldLogged = 0;               // banner fold animations started (see animateCollapse)
+    const nativeSetProperty = CSSStyleDeclaration.prototype.setProperty;
+    CSSStyleDeclaration.prototype.setProperty = function(prop, value, ...rest) {
+      if (prop === 'transition' && String(value).startsWith('height')) foldLogged++;
+      return nativeSetProperty.call(this, prop, value, ...rest);
+    };
     let backendMode = 'ok';           // 'ok' | 'error'
     let backendDelayMs = 60;          // bumped for the strict-mode "pending" test below
     let heldBatches = null;           // Promise that pauses every in-flight batch
@@ -71,7 +78,7 @@
           // Real Chrome throws synchronously when an orphaned content script
           // (extension reloaded/updated) touches chrome.runtime.
           if (!chrome.runtime.id) throw new Error('Extension context invalidated.');
-          if (msg.action === 'EVALUATE_BATCH') return backend(msg.items);
+          if (msg.action === 'EVALUATE_BATCH') { urgentFlags.push(msg.urgent); return backend(msg.items); }
           messages.push(msg);
           return Promise.resolve();
         },
@@ -455,6 +462,10 @@
       check('Blur mode: bấm "Xem nội dung" mở bài',
         $('RB').classList.contains('jev-revealed') && !$('RB').classList.contains('jev-blurred-post') &&
         !$('RB').querySelector(':scope > .jev-blur-tag'));
+      check('Blur mode: bỏ blur có hiệu ứng mờ dần và không còn lớp phủ màu',
+        $('RB').classList.contains('jev-unblurring') && !$('RB').querySelector(':scope > .jev-classic-wash'));
+      await sleep(450);
+      check('Blur mode: lớp hiệu ứng bỏ blur được dọn sau khi xong', !$('RB').classList.contains('jev-unblurring'));
       const callsBeforeRB = calls.length;
       // Facebook mutates the card in place (a timestamp appears): signature
       // changes, the cached verdict still stands, the repair pass wakes up.
@@ -533,7 +544,14 @@
       // --- Reading zone: bài mới trong vùng đọc bị vi phạm -> thu gọn thành banner ngay theo đúng hideMode: 'banner' ---
       const fresh = document.createElement('div');
       fresh.id = 'RZ_FRESH';
-      fresh.innerHTML = postHTML({ author: 'Trang F', body: 'Kèo cá độ tối nay siêu hot' });
+      fresh.innerHTML = postHTML({ author: 'Trang F', body: 'Kèo cá độ tối nay siêu hot' }) +
+        '<div style="height:300px"></div><video id="RZ_VIDEO"></video>'; // tall + a running video
+      let videoPauses = 0;
+      const vid = fresh.querySelector('video');
+      Object.defineProperty(vid, 'paused', { get: () => false });
+      vid.pause = () => { videoPauses++; };
+      const urgentBefore = urgentFlags.length;
+      const foldBefore = foldLogged;
       document.querySelector('[role="feed"]').appendChild(fresh);
       showInReadingZone($('RZ_FRESH'));
       await sleep(400); // registration done
@@ -543,6 +561,24 @@
       check('Chế độ Banner: bài mới trong vùng đọc vi phạm -> thu gọn thành banner ngay, không hiển thị giao diện mờ',
         status('RZ_FRESH') === 'hidden' && isCollapsed('RZ_FRESH') && !!bannerOf('RZ_FRESH') &&
         !$('RZ_FRESH').classList.contains('jev-blurred-post'));
+      check('Bài đang xem được gửi với cờ urgent để lên đầu hàng chờ API',
+        urgentFlags.slice(urgentBefore).some(Boolean), JSON.stringify(urgentFlags.slice(urgentBefore)));
+      check('Bài đang xem bị thu gọn bằng animation chiều cao (không giật feed)', foldLogged > foldBefore);
+      await sleep(450);
+      check('Animation thu gọn dọn sạch style inline sau khi xong',
+        !$('RZ_FRESH').style.height && !$('RZ_FRESH').style.overflow && !$('RZ_FRESH').style.transition,
+        $('RZ_FRESH').getAttribute('style'));
+      check('Bài bị ẩn: video đang chạy được tạm dừng', videoPauses >= 1, String(videoPauses));
+      const pausesAfterHide = videoPauses;
+      vid.dispatchEvent(new Event('play'));
+      check('Bài bị ẩn: video tự phát lại sẽ bị dừng ngay', videoPauses > pausesAfterHide);
+      const noteEl = bannerOf('RZ_FRESH').querySelector('.jev-banner-note');
+      check('Banner có ghi chú "đang hiển thị" từ i18n, ẩn khi chưa mở',
+        !!noteEl && noteEl.textContent.trim().length > 2 && getComputedStyle(noteEl).display === 'none');
+      bannerOf('RZ_FRESH').querySelector('.jev-btn-reveal').click();
+      check('Mở bài: ghi chú hiện ra và video không còn bị chặn',
+        getComputedStyle(noteEl).display !== 'none' && (() => { const n = videoPauses; vid.dispatchEvent(new Event('play')); return videoPauses === n; })());
+      bannerOf('RZ_FRESH').querySelector('.jev-btn-reveal').click(); // hide again
       scrollAway();
       await sleep(200);
       check('Cuộn ra khỏi màn hình: banner vẫn hiển thị ổn định',

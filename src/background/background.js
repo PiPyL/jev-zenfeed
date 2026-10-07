@@ -282,7 +282,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'EVALUATE_BATCH':
-      handleBatchEvaluation(message.items, makePartialSender(sender), platformOfSender(sender)).then(sendResponse, (err) => {
+      handleBatchEvaluation(message.items, makePartialSender(sender), platformOfSender(sender), message.urgent === true).then(sendResponse, (err) => {
         console.error('[Jev] handleBatchEvaluation failed:', err);
         sendResponse((message.items || []).map(it => ({ id: it.id, shouldHide: false, confidence: 0, error: true })));
       });
@@ -416,9 +416,19 @@ function drainApiRequestQueue() {
   }
 }
 
-function queueApiRequest(run, expire) {
+function queueApiRequest(run, expire, urgent = false) {
   return new Promise((resolve, reject) => {
-    apiRequestQueue.push({ run, expire, resolve, reject, queuedAt: Date.now() });
+    const job = { run, expire, resolve, reject, queuedAt: Date.now() };
+    // Posts the user is looking at go before look-ahead prefetch (FIFO among
+    // themselves), so a burst of prefetch batches cannot delay what is on screen.
+    if (urgent) {
+      let at = 0;
+      while (at < apiRequestQueue.length && apiRequestQueue[at].urgent) at++;
+      job.urgent = true;
+      apiRequestQueue.splice(at, 0, job);
+    } else {
+      apiRequestQueue.push(job);
+    }
     drainApiRequestQueue();
   });
 }
@@ -440,8 +450,9 @@ const author = (item) => item.author || 'Unknown';
  * @param {Array<{id: string, hash: string, text: string, author?: string}>} items
  * @param {((decisions: object[]) => void)|null} onPartial
  * @param {string} [platform='facebook'] sender's platform — picks Chung or its own profile
+ * @param {boolean} [urgent=false] batch holds a post inside the reader's view: queue ahead of prefetch
  */
-async function handleBatchEvaluation(items, onPartial = null, platform = 'facebook') {
+async function handleBatchEvaluation(items, onPartial = null, platform = 'facebook', urgent = false) {
   if (!Array.isArray(items) || items.length === 0) return [];
   await settingsReady;
   const config = { ...resolvePlatformSettings(settings, platform) };
@@ -532,7 +543,7 @@ async function handleBatchEvaluation(items, onPartial = null, platform = 'facebo
           }
           return results;
         });
-    }, () => sending.map(it => ({ id: it.id, error: true })));
+    }, () => sending.map(it => ({ id: it.id, error: true })), urgent);
 
     const byId = apiPromise.then((results) => new Map(results.map(r => [r.id, r])));
 

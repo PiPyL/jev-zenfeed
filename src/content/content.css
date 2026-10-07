@@ -188,8 +188,14 @@
   height: 16px !important;
 }
 
-.jev-revealed > .jev-banner .jev-banner-heading::after {
-  content: " · đang hiển thị" !important;
+/* "· showing": text comes from i18n (bannerShowing), shown only while revealed */
+.jev-banner-note {
+  display: none !important;
+}
+
+.jev-revealed > .jev-banner .jev-banner-note {
+  display: inline !important;
+  font-size: inherit !important;
   font-weight: 400 !important;
   color: var(--jev-muted) !important;
 }
@@ -282,6 +288,21 @@
   border-radius: inherit !important;
 }
 
+/* Ease the blur away when the user reveals a classic-blurred post. The blur
+   variables are still set on the post, so the keyframes start exactly where
+   the blur was. */
+.jev-unblurring > *:not(.jev-ui) {
+  animation: jev-unblur 0.26s ease-out both !important;
+}
+
+@keyframes jev-unblur {
+  from {
+    filter: blur(var(--jev-classic-blur, 18px)) saturate(0.45) brightness(0.72);
+    opacity: var(--jev-classic-opacity, 0.72);
+  }
+  to { filter: none; opacity: 1; }
+}
+
 /* ==================== In-place blur overlay ==================== */
 .jev-blur-canvas {
   position: absolute !important;
@@ -293,9 +314,9 @@
   align-items: center !important;
   justify-content: center !important;
   padding: 16px !important;
-  background: rgba(240, 243, 246, 0.45) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
+  background: rgba(240, 243, 246, 0.55) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
   z-index: 10 !important;
   border-radius: var(--card-corner-radius, 8px) !important;
   border: none !important;
@@ -309,7 +330,7 @@
 }
 
 .__fb-dark-mode .jev-blur-canvas {
-  background: rgba(18, 20, 24, 0.55) !important;
+  background: rgba(18, 20, 24, 0.62) !important;
 }
 
 /* Floating Zen card — centered, with one shared backdrop blur on the canvas. */
@@ -567,7 +588,7 @@
   background: transparent !important;
   color: #7FA894 !important;
   cursor: pointer !important;
-  transition: all 0.15s ease !important;
+  transition: background-color 0.15s ease, color 0.15s ease !important;
   align-self: center !important;
 }
 
@@ -592,7 +613,8 @@
   font-size: 13px !important;
   font-weight: 600 !important;
   cursor: pointer !important;
-  transition: all 0.15s ease !important;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.15s ease !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 6px !important;
@@ -634,7 +656,10 @@
 .jev-hold-fill {
   position: absolute !important;
   inset: 0 !important;
-  width: 0%;
+  width: 100% !important;
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
   background: rgba(255, 255, 255, 0.3) !important;
   pointer-events: none !important;
 }
@@ -725,9 +750,7 @@
   top: 50% !important;
   left: 50% !important;
   transform: translate(-50%, -50%) !important;
-  background: rgba(18, 20, 24, 0.88) !important;
-  backdrop-filter: blur(16px) saturate(1.8) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.8) !important;
+  background: rgba(18, 20, 24, 0.9) !important;
   color: #ffffff !important;
   border: 1px solid rgba(255, 255, 255, 0.16) !important;
   padding: 8px 14px !important;
@@ -791,7 +814,7 @@
   font-weight: 600 !important;
   font-family: inherit !important;
   cursor: pointer !important;
-  transition: all 0.15s ease !important;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease !important;
   box-sizing: border-box !important;
 }
 
@@ -905,7 +928,8 @@
 @media (prefers-reduced-motion: reduce) {
   .jev-ui,
   .jev-ui *,
-  .jev-blurred-post > * {
+  .jev-blurred-post > *,
+  .jev-unblurring > * {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
