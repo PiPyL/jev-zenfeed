@@ -286,6 +286,14 @@ try {
   assert.match(credit.error, /credit/i);
   assert.deepStrictEqual(calls.map((call) => call.url), ['https://openrouter.ai/api/alpha/decisions']);
   assert.strictEqual(JSON.parse(calls[0].body).model, 'typesafe/jev-1.13');
+  // Filtering itself must hit the same route as the key probe.
+  calls.length = 0;
+  await evaluateWithJev('sk-or-test', openrouterProvider.apiUrl, [{ id: 'p1', text: 'hello world', author: 'A' }], 'spam', 70);
+  assert.deepStrictEqual(calls.map((call) => call.url), ['https://openrouter.ai/api/alpha/decisions']);
+  assert.strictEqual(JSON.parse(calls[0].body).model, 'typesafe/jev-1.13');
+  calls.length = 0;
+  await evaluateWithJev('jev_test_key_value', typesafeProvider.apiUrl, [{ id: 'p1', text: 'hello world', author: 'A' }], 'spam', 70);
+  assert.deepStrictEqual(calls.map((call) => call.url), ['https://api.typesafe.ai/v1/systemone']);
   calls.length = 0;
   globalThis.fetch = async (url) => {
     calls.push(String(url));

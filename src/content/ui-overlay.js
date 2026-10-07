@@ -3,12 +3,14 @@
  * Injects non-intrusive Collapsed Banners or Blur overlays without breaking Facebook's feed layout.
  * Every injected node carries the `jev-ui` class so the text extractor ignores it.
  *
- * UX review (2026-09): a post that is still inside the user's "reading zone"
- * (content.js) stays in place until it leaves — it gets a quiet corner label or an
- * in-place blur (no height change) instead of an instant collapse. The three
- * visual surfaces here (banner, blur tag, corner label) all describe the SAME
- * decision the same way (category/reason, no raw confidence number — that's
- * only ever a tooltip now, see `reasonText`/`formatConfidence`).
+ * A confirmed violation is hidden at once (banner / blur / remove per the
+ * user's setting). A banner that replaces a post the user is looking at
+ * folds its height away over ~220ms (`animateCollapse`) instead of snapping,
+ * and videos of a concealed post are paused so they cannot keep playing
+ * (and sounding) behind a blur or a banner. The visual surfaces here (banner,
+ * blur tag, corner label) all describe the SAME decision the same way
+ * (category/reason, no raw confidence number — that's only ever a tooltip,
+ * see `reasonText`/`formatConfidence`).
  */
 
 window.JevFB = window.JevFB || {};
@@ -166,22 +168,6 @@ window.JevFB = window.JevFB || {};
   }
 
   /**
-   * Deprecated: scanning is now 100% silent and background-only to guarantee
-   * zero visual noise and native Facebook feed performance. Kept as no-op for API safety.
-   */
-  JevFB.applyAnalyzingState = function(_postEl, _shouldBlur, _options = {}) {};
-
-  /** Remove the pre-decision waiting visual, if any (does not touch a decided hide). */
-  JevFB.clearAnalyzingState = function(postEl) {
-    if (!postEl) return;
-    const tag = postEl.querySelector(':scope > .jev-blur-tag.jev-blur-tag-pending');
-    if (tag) {
-      tag.remove();
-      postEl.classList.remove('jev-blurred-post');
-    }
-  };
-
-  /**
    * Cascade hide any sibling replies belonging to this thread post.
    */
   function cascadeHideReplies(postEl) {
@@ -227,6 +213,72 @@ window.JevFB = window.JevFB || {};
   }
   JevFB.cascadeRestoreReplies = cascadeRestoreReplies;
 
+  // ---- Concealed media: a hidden post must not keep playing ----
+  // `inert` / display:none / a blur do not stop a <video> that is already
+  // running (or that Facebook autoplays again when it scrolls into view), so
+  // its audio kept sounding and its frames kept being decoded and blurred.
+  const mediaGuarded = new WeakSet();
+
+  function isConcealed(postEl) {
+    return postEl.classList.contains('jev-post-collapsed') ||
+      postEl.classList.contains('jev-blurred-post') ||
+      !!postEl.dataset.jevRemoved;
+  }
+
+  function pauseConcealedMedia(postEl) {
+    postEl.querySelectorAll('video, audio').forEach((m) => {
+      if (!m.paused) { try { m.pause(); } catch (_) {} }
+    });
+    if (mediaGuarded.has(postEl)) return;
+    mediaGuarded.add(postEl);
+    // `play` does not bubble: capture on the post catches every media element
+    // inside it, including ones Facebook adds later. A revealed post is no
+    // longer concealed, so its media plays normally again.
+    postEl.addEventListener('play', (e) => {
+      if (e.target && /^(VIDEO|AUDIO)$/.test(e.target.tagName) && isConcealed(postEl)) {
+        try { e.target.pause(); } catch (_) {}
+      }
+    }, true);
+  }
+
+  // ---- Banner fold animation ----
+  const COLLAPSE_MS = 220;
+  const collapseTimers = new WeakMap();
+
+  function clearCollapseAnimation(postEl) {
+    const timer = collapseTimers.get(postEl);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    collapseTimers.delete(postEl);
+    ['height', 'overflow', 'transition'].forEach((prop) => postEl.style.removeProperty(prop));
+  }
+
+  function prefersReducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  /**
+   * Fold a post that was just replaced by its banner from `fromHeight` to the
+   * banner's height, so the feed below glides up instead of jumping. Call
+   * right after `hidePost` for a post the user is looking at; posts nobody
+   * sees are collapsed instantly (they cost no layout read at all).
+   * @param {HTMLElement} postEl
+   * @param {number} fromHeight height measured BEFORE hidePost ran
+   */
+  JevFB.animateCollapse = function(postEl, fromHeight) {
+    if (!postEl || !(fromHeight > 0) || postEl.dataset.jevRemoved || prefersReducedMotion()) return;
+    const to = postEl.offsetHeight;
+    if (fromHeight - to < 24) return; // nothing worth animating
+    clearCollapseAnimation(postEl);
+    const style = postEl.style;
+    style.setProperty('overflow', 'hidden', 'important');
+    style.setProperty('height', `${fromHeight}px`, 'important');
+    void postEl.offsetHeight; // commit the start height before transitioning
+    style.setProperty('transition', `height ${COLLAPSE_MS}ms cubic-bezier(0.2, 0, 0, 1)`, 'important');
+    style.setProperty('height', `${to}px`, 'important');
+    collapseTimers.set(postEl, setTimeout(() => clearCollapseAnimation(postEl), COLLAPSE_MS + 60));
+  };
+
   /**
    * Remove every hiding/labeling effect (banner/blur/remove/corner label) so
    * the post shows exactly as Facebook rendered it.
@@ -234,10 +286,12 @@ window.JevFB = window.JevFB || {};
    */
   JevFB.unhidePost = function(postEl) {
     if (!postEl) return;
+    clearCollapseAnimation(postEl);
     stopBlurObservers(postEl);
     restoreBlurredContent(postEl);
     postEl.classList.remove(
-      'jev-post-collapsed', 'jev-revealed', 'jev-blurred-post', 'jev-blur-classic', 'jev-relative-anchor', 'jev-banner-slim', 'jev-reply-hidden'
+      'jev-post-collapsed', 'jev-revealed', 'jev-blurred-post', 'jev-blur-classic', 'jev-unblurring',
+      'jev-relative-anchor', 'jev-banner-slim', 'jev-reply-hidden'
     );
     postEl.style.removeProperty('--jev-classic-blur');
     postEl.style.removeProperty('--jev-classic-opacity');
@@ -317,6 +371,7 @@ window.JevFB = window.JevFB || {};
     JevFB.unhidePost(postEl);
     postEl.dataset.jevStatus = 'hidden';
     postEl.dataset.jevHideMode = mode;
+    pauseConcealedMedia(postEl);
 
     // Mode 1: Remove entirely
     if (mode === 'remove') {
@@ -342,7 +397,10 @@ window.JevFB = window.JevFB || {};
   };
 
   JevFB.syncBlurAccessibility = function(postEl) {
-    if (postEl && postEl.classList.contains('jev-blurred-post')) isolateBlurredContent(postEl);
+    if (postEl && postEl.classList.contains('jev-blurred-post')) {
+      isolateBlurredContent(postEl);
+      pauseConcealedMedia(postEl); // media Facebook adds to a blurred post later
+    }
   };
 
   const ICON_SHIELD = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">' +
@@ -399,6 +457,7 @@ window.JevFB = window.JevFB || {};
       <div class="jev-banner-info">
         <div class="jev-banner-title">
           <span class="jev-banner-heading">${escapeHtml(t(lang, 'bannerTitle'))}</span>
+          <span class="jev-banner-note">· ${escapeHtml(t(lang, 'bannerShowing'))}</span>
         </div>
         <div class="jev-banner-desc" title="${escapeHtml(options.criteria || '')}">${escapeHtml(detail)}</div>
       </div>
@@ -418,7 +477,6 @@ window.JevFB = window.JevFB || {};
     bindMarkSafe(banner.querySelector('.jev-btn-safe'), postEl);
 
     postEl.prepend(banner);
-    cascadeHideReplies(postEl);
   };
 
   /**
@@ -464,11 +522,21 @@ window.JevFB = window.JevFB || {};
   function bindRevealAction(btn, postEl, canvasOrTag, friction) {
     if (!btn) return;
     const reveal = () => {
+      const wasClassic = postEl.classList.contains('jev-blur-classic');
       stopBlurObservers(postEl);
       restoreBlurredContent(postEl);
       postEl.classList.remove('jev-blurred-post', 'jev-blur-classic');
       postEl.classList.add('jev-revealed');
       canvasOrTag.remove();
+      // The colour wash is a sibling of the tag: left behind it kept tinting
+      // the post the user just chose to read.
+      postEl.querySelectorAll(':scope > .jev-classic-wash').forEach(n => n.remove());
+      if (wasClassic && !prefersReducedMotion()) {
+        // Ease the blur away instead of snapping (the blur variables stay on
+        // the post until unhidePost, which the keyframes read).
+        postEl.classList.add('jev-unblurring');
+        setTimeout(() => postEl.classList.remove('jev-unblurring'), 300);
+      }
       cascadeRestoreReplies(postEl);
     };
 
@@ -487,8 +555,8 @@ window.JevFB = window.JevFB || {};
           keyboardHold = true;
         }
         if (fill) {
-          fill.style.transition = `width ${HOLD_DURATION}ms linear`;
-          fill.style.width = '100%';
+          fill.style.transition = `transform ${HOLD_DURATION}ms linear`;
+          fill.style.transform = 'scaleX(1)';
         }
         holdTimer = setTimeout(() => {
           reveal();
@@ -501,8 +569,8 @@ window.JevFB = window.JevFB || {};
           clearTimeout(holdTimer);
           holdTimer = null;
           if (fill) {
-            fill.style.transition = 'width 0.15s ease-out';
-            fill.style.width = '0%';
+            fill.style.transition = 'transform 0.15s ease-out';
+            fill.style.transform = 'scaleX(0)';
           }
         }
         keyboardHold = false;
