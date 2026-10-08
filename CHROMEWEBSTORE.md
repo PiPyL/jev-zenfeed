@@ -1,7 +1,7 @@
 # Chrome Web Store Listing — ZenFeed
 
-> Last Updated: 2026-09-26
-> Version: 1.2.0
+> Last Updated: 2026-10-08
+> Version: 1.2.1
 > Extension ID: jjnemjiljlfjafaifoajihdiehedlibk
 > Store URL: https://chromewebstore.google.com/detail/zenfeed/jjnemjiljlfjafaifoajihdiehedlibk
 
